@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALIEN // DEEP SHIP</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --green: #00ff9d;
+    --green-dim: #00aa6a;
+    --green-dark: #003322;
+    --amber: #ffaa00;
+    --red: #ff3333;
+    --bg: #050a07;
+    --panel: #070e09;
+    --border: #1a3320;
+    --text: #00cc7a;
+    --text-dim: #006644;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  #game-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 900px;
+    padding: 8px;
+  }
+
+  #hud-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    font-size: 12px;
+    letter-spacing: 2px;
+  }
+
+  #hud-top .title {
+    font-family: 'Orbitron', monospace;
+    color: var(--green);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  #hud-top .stat { color: var(--text-dim); }
+  #hud-top .stat span { color: var(--amber); }
+
+  #canvas-container {
+    position: relative;
+    border: 1px solid var(--border);
+    line-height: 0;
+  }
+
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  #scanline-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+  }
+
+  #hud-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .hud-panel {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    padding: 8px 12px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    flex: 1;
+  }
+
+  .hud-panel .label {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-bottom: 4px;
+    letter-spacing: 2px;
+  }
+
+  #motion-tracker-canvas {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+  }
+
+  #health-bar-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .bar-label { color: var(--text-dim); font-size: 10px; width: 50px; }
+
+  .bar-outer {
+    flex: 1;
+    height: 8px;
+    background: #0a1a0f;
+    border: 1px solid var(--border);
+  }
+
+  .bar-inner {
+    height: 100%;
+    transition: width 0.3s;
+  }
+
+  .bar-health { background: var(--green); }
+  .bar-stress { background: var(--amber); }
+  .bar-o2 { background: #44aaff; }
+
+  #log-panel {
+    flex: 2;
+    overflow: hidden;
+  }
+
+  #log-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 60px;
+    overflow: hidden;
+  }
+
+  .log-line {
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .log-line.important { color: var(--amber); }
+  .log-line.danger { color: var(--red); }
+  .log-line.success { color: var(--green); }
+
+  #controls-panel {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.8;
+  }
+
+  #controls-panel span { color: var(--green); }
+
+  #overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    font-family: 'Orbitron', monospace;
+  }
+
+  #overlay h1 {
+    font-size: 36px;
+    color: var(--green);
+    letter-spacing: 8px;
+    margin-bottom: 8px;
+  }
+
+  #overlay h2 {
+    font-size: 14px;
+    color: var(--text-dim);
+    letter-spacing: 4px;
+    margin-bottom: 40px;
+  }
+
+  #overlay .message {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    letter-spacing: 2px;
+    margin-bottom: 40px;
+    text-align: center;
+    line-height: 2;
+    max-width: 500px;
+  }
+
+  #overlay .message.red { color: var(--red); }
+  #overlay .message.amber { color: var(--amber); }
+
+  #overlay button {
+    background: transparent;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: 'Orbitron', monospace;
+    font-size: 13px;
+    letter-spacing: 3px;
+    padding: 12px 32px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  #overlay button:hover {
+    background: var(--green);
+    color: var(--bg);
+  }
+
+  .blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  #floor-indicator {
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 3px;
+  }
+
+  #floor-indicator span { color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <h1>DEEP SHIP</h1>
+  <h2>// XENOMORPH CONTAINMENT FAILURE //</h2>
+  <div class="message">
+    USCSS PROMETHEUS — DECK 7<br>
+    CONTAINMENT BREACH DETECTED<br>
+    CREW STATUS: UNKNOWN<br>
+    <br>
+    OBJECTIVE: REACH EMERGENCY AIRLOCK
+  </div>
+  <button onclick="startGame()">[ INITIALIZE ]</button>
+</div>
+
+<div id="game-wrapper">
+  <div id="hud-top">
+    <div class="title">DEEP SHIP</div>
+    <div id="floor-indicator">DECK <span id="floor-num">01</span></div>
+    <div class="stat">ALIEN: <span id="alien-dist">---</span>m</div>
+    <div class="stat">TIME: <span id="time-display">00:00</span></div>
+  </div>
+
+  <div id="canvas-container">
+    <canvas id="gameCanvas" width="700" height="490"></canvas>
+    <div id="scanline-overlay"></div>
+  </div>
+
+  <div id="hud-bottom">
+    <div class="hud-panel" id="tracker-panel">
+      <div class="label">MOTION TRACKER</div>
+      <canvas id="motion-tracker-canvas" width="80" height="80"></canvas>
+    </div>
+
+    <div class="hud-panel" id="status-panel" style="flex:2">
+      <div class="label">VITAL SIGNS</div>
+      <div id="health-bar-container">
+        <div class="bar-row">
+          <div class="bar-label">HEALTH</div>
+          <div class="bar-outer"><div class="bar-inner bar-health" id="bar-health" style="width:100%"></div></div>
+          <div id="val-health" style="font-size:10px;color:var(--green);width:32px;text-align:right">100</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">STRESS</div>
+          <div class="bar-outer"><div class="bar-inner bar-stress" id="bar-stress" style="width:0%"></div></div>
+          <div id="val-stress" style="font-size:10px;color:var(--amber);width:32px;text-align:right">0</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">O2</div>
+          <div class="bar-outer"><div class="bar-inner bar-o2" id="bar-o2" style="width:100%"></div></div>
+          <div id="val-o2" style="font-size:10px;color:#44aaff;width:32px;text-align:right">100</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-panel log-panel" id="log-panel" style="flex:3">
+      <div class="label">SHIP LOG</div>
+      <div id="log-lines"></div>
+    </div>
+
+    <div class="hud-panel" id="controls-panel">
+      <div class="label">CONTROLS</div>
+      <span>WASD</span> / arrows — move<br>
+      <span>SHIFT</span> — sprint<br>
+      <span>E</span> — interact<br>
+      <span>F</span> — toggle light
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONSTANTS & CONFIG
+// ============================================================
+const CONFIG = {
+  TILE: 14,
+  COLS: 50,
+  ROWS: 35,
+  CANVAS_W: 700,
+  CANVAS_H: 490,
+
+  // Viewport (tiles visible)
+  VIEW_COLS: 50,
+  VIEW_ROWS: 35,
+
+  // FOV
+  FOV_RADIUS: 8,
+  FOV_RADIUS_DARK: 3,
+
+  // Player
+  PLAYER_SPEED: 60,        // px/sec walk — pomalý, tichý
+  PLAYER_SPRINT: 220,      // px/sec sprint — rychlý, hlučný
+  PLAYER_MAX_HEALTH: 100,
+  PLAYER_MAX_O2: 100,
+  O2_DRAIN: 0.5,           // per second in vents
+
+  // Stress — reaguje na radarovou vzdálenost blipa
+  STRESS_INCREASE_HUNT: 20,   // per second — alien aktivně honí
+  STRESS_INCREASE_NEAR: 10,   // per second — blip blízko na radaru (do 6 tiles)
+  STRESS_INCREASE_MID: 3,     // per second — blip středně daleko (6-12 tiles)
+  STRESS_DECAY: 4,            // per second — alien daleko nebo nedetekován
+  STRESS_RADAR_NEAR: 6,       // tiles — "blip je blízko"
+  STRESS_RADAR_MID: 12,       // tiles — "blip je vidět na radaru"
+  STRESS_RADAR_MAX: 20,       // tiles — max dosah radaru (stejné jako tracker)
+
+  // Alien
+  ALIEN_BASE_SPEED: 55,       // wander — pomalý, klidný
+  ALIEN_INVESTIGATE_SPEED: 85,// slyšel něco — jde se podívat
+  ALIEN_HUNT_SPEED: 140,      // vidí hráče — loví
+  ALIEN_HEARING_WALK: 0,      // walk = 0 tiles hluku (tichý)
+  ALIEN_HEARING_SPRINT: 10,   // sprint = slyší na 10 tiles
+  ALIEN_VISION_CONE: 55,      // stupně — half-angle kužele výhledu
+  ALIEN_VISION_DIST: 5,       // tiles — délka výhledu
+  ALIEN_WANDER_CHANGE: 5,     // seconds mezi výběrem nové místnosti
+  ALIEN_ATTACK_RANGE: 1.2,    // tiles
+  ALIEN_ATTACK_DAMAGE: 25,
+  ALIEN_ATTACK_COOLDOWN: 2,   // seconds
+  ALIEN_LOSE_HUNT_TIME: 4,    // sekundy bez vizuálního kontaktu → přechod na investigate
+
+  // Sound
+  FOOTSTEP_WALK_INTERVAL: 99, // walk = žádné slyšitelné kroky (velmi tichý)
+  FOOTSTEP_SPRINT_INTERVAL: 0.3,
+
+  // Colors
+  COLOR_WALL: '#1a3a22',
+  COLOR_WALL_LIT: '#2a5a32',
+  COLOR_FLOOR: '#050f07',
+  COLOR_FLOOR_LIT: '#0a1f0e',
+  COLOR_FLOOR_SEEN: '#07130a',
+  COLOR_FOG: '#000000',
+  COLOR_VENT: '#0a1a14',
+  COLOR_VENT_LIT: '#103326',
+  COLOR_DOOR_OPEN: '#2a4a33',
+  COLOR_DOOR_CLOSED: '#335533',
+  COLOR_EXIT: '#00ff9d',
+  COLOR_ITEM: '#ffaa00',
+  COLOR_ALIEN: '#44ff77',
+  COLOR_PLAYER: '#ffffff',
+};
+
+// Tile types
+const TILE = {
+  EMPTY: 0,
+  WALL: 1,
+  FLOOR: 2,
+  VENT: 3,
+  DOOR_CLOSED: 4,
+  DOOR_OPEN: 5,
+  EXIT: 6,
+  ITEM_CARD: 7,
+  ITEM_MEDKIT: 8,
+};
+
+// ============================================================
+// UTILITIES
+// ============================================================
+const Utils = {
+  rng: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
+  dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
+  distTiles: (a, b) => Math.hypot(
+    Math.floor(a.x / CONFIG.TILE) - Math.floor(b.x / CONFIG.TILE),
+    Math.floor(a.y / CONFIG.TILE) - Math.floor(b.y / CONFIG.TILE)
+  ),
+  clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
+  lerp: (a, b, t) => a + (b - a) * t,
+  tileToWorld: (tx, ty) => ({ x: tx * CONFIG.TILE + CONFIG.TILE/2, y: ty * CONFIG.TILE + CONFIG.TILE/2 }),
+  worldToTile: (wx, wy) => ({ x: Math.floor(wx / CONFIG.TILE), y: Math.floor(wy / CONFIG.TILE) }),
+  angle: (from, to) => Math.atan2(to.y - from.y, to.x - from.x),
+};
+
+// ============================================================
+// INPUT MANAGER
+// ============================================================
+const Input = {
+  keys: {},
+  init() {
+    window.addEventListener('keydown', e => {
+      this.keys[e.code] = true;
+      e.preventDefault();
+    });
+    window.addEventListener('keyup', e => {
+      this.keys[e.code] = false;
+    });
+  },
+  isDown(code) { return !!this.keys[code]; },
+  isSprinting() { return this.isDown('ShiftLeft') || this.isDown('ShiftRight'); },
+  isInteracting() { return this.isDown('KeyE'); },
+  getMovement() {
+    let dx = 0, dy = 0;
+    if (this.isDown('KeyW') || this.isDown('ArrowUp'))    dy = -1;
+    if (this.isDown('KeyS') || this.isDown('ArrowDown'))  dy =  1;
+    if (this.isDown('KeyA') || this.isDown('ArrowLeft'))  dx = -1;
+    if (this.isDown('KeyD') || this.isDown('ArrowRight')) dx =  1;
+    if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+    return { dx, dy };
+  }
+};
+
+// ============================================================
+// MAP GENERATOR — BSP dungeon
+// ============================================================
+class MapGenerator {
+  constructor(cols, rows) {
+    this.cols = cols;
+    this.rows = rows;
+    this.tiles = [];
+    this.rooms = [];
+    this.ventPaths = [];
+  }
+
+  generate() {
+    // Init all walls
+    this.tiles = Array.from({ length: this.rows }, () =>
+      Array(this.cols).fill(TILE.WALL)
+    );
+    this.rooms = [];
+
+    // BSP split
+    const root = { x: 1, y: 1, w: this.cols - 2, h: this.rows - 2 };
+    const leaves = this._splitBSP(root, 0);
+
+    // Carve rooms in leaves
+    leaves.forEach(leaf => {
+      const room = this._carveRoom(leaf);
+      if (room) this.rooms.push(room);
+    });
+
+    // Connect rooms with corridors
+    const sorted = [...this.rooms].sort((a, b) => a.cx - b.cx);
+    for (let i = 1; i < sorted.length; i++) {
+      this._connectRooms(sorted[i-1], sorted[i]);
+    }
+
+    // Add vents
+    this._addVents();
+
+    // Place doors on some corridor intersections
+    this._addDoors();
+
+    // Place items & exit
+    const placements = this._placeFeaturesAndItems();
+
+    return {
+      tiles: this.tiles,
+      rooms: this.rooms,
+      playerStart: placements.playerStart,
+      alienStart: placements.alienStart,
+      exitPos: placements.exitPos,
+      items: placements.items,
+    };
+  }
+
+  _splitBSP(rect, depth) {
+    if (depth > 4) return [rect];
+    if (rect.w < 12 && rect.h < 12) return [rect];
+    const splitH = rect.w > rect.h ? true : rect.h > rect.w ? false : Math.random() > 0.5;
+    let leaves = [];
+    if (splitH && rect.w >= 12) {
+      const split = Utils.rng(6, rect.w - 6);
+      leaves = [
+        ...this._splitBSP({ x: rect.x, y: rect.y, w: split, h: rect.h }, depth+1),
+        ...this._splitBSP({ x: rect.x+split, y: rect.y, w: rect.w-split, h: rect.h }, depth+1),
+      ];
+    } else if (!splitH && rect.h >= 12) {
+      const split = Utils.rng(5, rect.h - 5);
+      leaves = [
+        ...this._splitBSP({ x: rect.x, y: rect.y, w: rect.w, h: split }, depth+1),
+        ...this._splitBSP({ x: rect.x, y: rect.y+split, w: rect.w, h: rect.h-split }, depth+1),
+      ];
+    } else {
+      return [rect];
+    }
+    return leaves;
+  }
+
+  _carveRoom(leaf) {
+    const minW = 4, minH = 3;
+    const maxW = Math.min(leaf.w - 2, 12);
+    const maxH = Math.min(leaf.h - 2, 9);
+    if (maxW < minW || maxH < minH) return null;
+    const w = Utils.rng(minW, maxW);
+    const h = Utils.rng(minH, maxH);
+    const x = leaf.x + Utils.rng(1, leaf.w - w - 1);
+    const y = leaf.y + Utils.rng(1, leaf.h - h - 1);
+    for (let ty = y; ty < y + h; ty++)
+      for (let tx = x; tx < x + w; tx++)
+        this.tiles[ty][tx] = TILE.FLOOR;
+    return { x, y, w, h, cx: Math.floor(x + w/2), cy: Math.floor(y + h/2) };
+  }
+
+  _connectRooms(a, b) {
+    let cx = a.cx, cy = a.cy;
+    const tx = b.cx, ty = b.cy;
+    // L-shaped corridor
+    if (Math.random() > 0.5) {
+      while (cx !== tx) { this.tiles[cy][cx] = TILE.FLOOR; cx += cx < tx ? 1 : -1; }
+      while (cy !== ty) { this.tiles[cy][cx] = TILE.FLOOR; cy += cy < ty ? 1 : -1; }
+    } else {
+      while (cy !== ty) { this.tiles[cy][cx] = TILE.FLOOR; cy += cy < ty ? 1 : -1; }
+      while (cx !== tx) { this.tiles[cy][cx] = TILE.FLOOR; cx += cx < tx ? 1 : -1; }
+    }
+  }
+
+  _addVents() {
+    // Add 3-5 vent shafts connecting distant rooms
+    const count = Utils.rng(3, 5);
+    for (let i = 0; i < count; i++) {
+      if (this.rooms.length < 2) break;
+      const rA = this.rooms[Utils.rng(0, Math.floor(this.rooms.length/2) - 1)];
+      const rB = this.rooms[Utils.rng(Math.floor(this.rooms.length/2), this.rooms.length-1)];
+      // Draw vent path
+      let cx = rA.cx, cy = rA.cy;
+      const path = [];
+      while (cx !== rB.cx) {
+        if (this.tiles[cy][cx] !== TILE.FLOOR) { this.tiles[cy][cx] = TILE.VENT; path.push({x:cx,y:cy}); }
+        cx += cx < rB.cx ? 1 : -1;
+      }
+      while (cy !== rB.cy) {
+        if (this.tiles[cy][cx] !== TILE.FLOOR) { this.tiles[cy][cx] = TILE.VENT; path.push({x:cx,y:cy}); }
+        cy += cy < rB.cy ? 1 : -1;
+      }
+      this.ventPaths.push(path);
+    }
+  }
+
+  _addDoors() {
+    // Scan for corridor tiles adjacent to rooms and add doors
+    for (let ty = 1; ty < this.rows-1; ty++) {
+      for (let tx = 1; tx < this.cols-1; tx++) {
+        if (this.tiles[ty][tx] !== TILE.FLOOR) continue;
+        // Check if it's a narrow corridor (exactly 2 walls on opposite sides)
+        const wallN = this.tiles[ty-1][tx] === TILE.WALL;
+        const wallS = this.tiles[ty+1][tx] === TILE.WALL;
+        const wallE = this.tiles[ty][tx+1] === TILE.WALL;
+        const wallW = this.tiles[ty][tx-1] === TILE.WALL;
+        if ((wallN && wallS && !wallE && !wallW) || (!wallN && !wallS && wallE && wallW)) {
+          if (Math.random() < 0.25) {
+            this.tiles[ty][tx] = TILE.DOOR_CLOSED;
+          }
+        }
+      }
+    }
+  }
+
+  _placeFeaturesAndItems() {
+    const shuffled = [...this.rooms].sort(() => Math.random() - 0.5);
+    const playerRoom = shuffled[0];
+    const alienRoom = shuffled[shuffled.length - 1];
+    const exitRoom = shuffled[Math.floor(shuffled.length / 2)];
+
+    const playerStart = Utils.tileToWorld(playerRoom.cx, playerRoom.cy);
+    const alienStart = Utils.tileToWorld(alienRoom.cx, alienRoom.cy);
+    const exitPos = { tx: exitRoom.cx, ty: exitRoom.cy };
+    this.tiles[exitRoom.cy][exitRoom.cx] = TILE.EXIT;
+
+    // Place items in other rooms
+    const items = [];
+    shuffled.slice(1, -1).forEach((room, i) => {
+      if (i % 3 === 0) {
+        const type = Math.random() > 0.5 ? TILE.ITEM_CARD : TILE.ITEM_MEDKIT;
+        this.tiles[room.cy][room.cx] = type;
+        items.push({ tx: room.cx, ty: room.cy, type });
+      }
+    });
+
+    return { playerStart, alienStart, exitPos, items };
+  }
+}
+
+// ============================================================
+// FIELD OF VIEW — Recursive Shadowcasting
+// ============================================================
+class FOVSystem {
+  constructor(tiles, cols, rows) {
+    this.tiles = tiles;
+    this.cols = cols;
+    this.rows = rows;
+  }
+
+  compute(originTx, originTy, radius) {
+    const visible = new Set();
+    visible.add(`${originTx},${originTy}`);
+
+    const octants = [
+      [1,0,0,1],[0,1,1,0],[-1,0,0,1],[0,-1,1,0],
+      [1,0,0,-1],[0,1,-1,0],[-1,0,0,-1],[0,-1,-1,0]
+    ];
+
+    octants.forEach(([xx, xy, yx, yy]) => {
+      this._scanOctant(visible, originTx, originTy, radius, 1, 1.0, 0.0, xx, xy, yx, yy);
+    });
+
+    return visible;
+  }
+
+  _scanOctant(visible, ox, oy, radius, row, startSlope, endSlope, xx, xy, yx, yy) {
+    if (startSlope < endSlope) return;
+    let nextStartSlope = startSlope;
+    for (let i = row; i <= radius; i++) {
+      let blocked = false;
+      for (let dx = -i; dx <= 0; dx++) {
+        const dy = -i;
+        const lSlope = (dx - 0.5) / (dy + 0.5);
+        const rSlope = (dx + 0.5) / (dy - 0.5);
+        if (startSlope < rSlope) continue;
+        if (endSlope > lSlope) break;
+        const tx = ox + dx * xx + dy * yx;
+        const ty = oy + dx * xy + dy * yy;
+        if (tx < 0 || ty < 0 || tx >= this.cols || ty >= this.rows) {
+          if (blocked) { nextStartSlope = rSlope; blocked = false; }
+          continue;
+        }
+        if (Utils.dist({x:ox,y:oy},{x:tx,y:ty}) <= radius) {
+          visible.add(`${tx},${ty}`);
+        }
+        const isWall = this.tiles[ty][tx] === TILE.WALL || this.tiles[ty][tx] === TILE.EMPTY;
+        if (blocked) {
+          if (isWall) { nextStartSlope = rSlope; }
+          else { blocked = false; startSlope = nextStartSlope; }
+        } else if (isWall && i < radius) {
+          blocked = true;
+          nextStartSlope = rSlope;
+          this._scanOctant(visible, ox, oy, radius, i+1, startSlope, lSlope, xx, xy, yx, yy);
+        }
+      }
+      if (blocked) break;
+    }
+  }
+
+  isPassable(tx, ty) {
+    if (tx < 0 || ty < 0 || tx >= this.cols || ty >= this.rows) return false;
+    const t = this.tiles[ty][tx];
+    return t === TILE.FLOOR || t === TILE.VENT || t === TILE.DOOR_OPEN ||
+           t === TILE.EXIT || t === TILE.ITEM_CARD || t === TILE.ITEM_MEDKIT;
+  }
+}
+
+// ============================================================
+// PATHFINDING — A*
+// ============================================================
+class Pathfinder {
+  constructor(fov) { this.fov = fov; }
+
+  findPath(fromTx, fromTy, toTx, toTy) {
+    const key = (x,y) => `${x},${y}`;
+    const h = (x,y) => Math.abs(x - toTx) + Math.abs(y - toTy);
+    const open = [{ x: fromTx, y: fromTy, g: 0, f: h(fromTx, fromTy) }];
+    const gScore = { [key(fromTx,fromTy)]: 0 };
+    const parent = {};
+    const dirs = [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[1,-1],[-1,1],[1,1]];
+    let iters = 0;
+
+    while (open.length && iters++ < 500) {
+      open.sort((a,b) => a.f - b.f);
+      const cur = open.shift();
+      if (cur.x === toTx && cur.y === toTy) {
+        const path = [];
+        let c = key(toTx, toTy);
+        while (parent[c]) { const p = parent[c].split(','); path.unshift({x:+p[0],y:+p[1]}); c = parent[c]; }
+        return path;
+      }
+      for (const [dx,dy] of dirs) {
+        const nx = cur.x+dx, ny = cur.y+dy;
+        if (!this.fov.isPassable(nx, ny)) continue;
+        const ng = (gScore[key(cur.x,cur.y)] || 0) + (dx!==0 && dy!==0 ? 1.414 : 1);
+        const nk = key(nx,ny);
+        if (gScore[nk] !== undefined && ng >= gScore[nk]) continue;
+        gScore[nk] = ng;
+        parent[nk] = key(cur.x,cur.y);
+        open.push({ x:nx, y:ny, g:ng, f:ng+h(nx,ny) });
+      }
+    }
+    return [];
+  }
+}
+
+// ============================================================
+// SOUND SYSTEM — audio context + procedural sounds
+// ============================================================
+class SoundSystem {
+  constructor() {
+    this.ctx = null;
+    this.enabled = true;
+    this._init();
+  }
+
+  _init() {
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) { this.enabled = false; }
+  }
+
+  _resume() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  _playTone(freq, type, duration, volume, decay) {
+    if (!this.enabled || !this.ctx) return;
+    this._resume();
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq * (decay||1), this.ctx.currentTime + duration);
+    gain.gain.setValueAtTime(volume, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+    osc.start(this.ctx.currentTime);
+    osc.stop(this.ctx.currentTime + duration);
+  }
+
+  footstep(sprint) {
+    const freq = sprint ? 80 + Math.random()*40 : 120 + Math.random()*30;
+    this._playTone(freq, 'sawtooth', 0.08, 0.04);
+  }
+
+  door() { this._playTone(200, 'square', 0.3, 0.08, 0.3); }
+
+  pickup() {
+    this._playTone(600, 'sine', 0.1, 0.1);
+    setTimeout(() => this._playTone(900, 'sine', 0.15, 0.1), 100);
+  }
+
+  alienNear() { this._playTone(60 + Math.random()*20, 'sawtooth', 0.4, 0.06, 0.5); }
+
+  alarm() {
+    this._playTone(880, 'square', 0.2, 0.12);
+    setTimeout(() => this._playTone(660, 'square', 0.2, 0.12), 250);
+  }
+
+  levelComplete() {
+    [440, 550, 660, 880].forEach((f, i) =>
+      setTimeout(() => this._playTone(f, 'sine', 0.3, 0.15), i * 150)
+    );
+  }
+
+  death() {
+    this._playTone(200, 'sawtooth', 1.5, 0.2, 0.1);
+    setTimeout(() => this._playTone(100, 'sawtooth', 1.0, 0.15, 0.1), 500);
+  }
+}
+
+// ============================================================
+// GAME LOG
+// ============================================================
+const GameLog = {
+  lines: [],
+  maxLines: 5,
+  add(msg, cls='') {
+    this.lines.unshift({ msg, cls });
+    if (this.lines.length > this.maxLines) this.lines.pop();
+    this.render();
+  },
+  render() {
+    const el = document.getElementById('log-lines');
+    el.innerHTML = this.lines
+      .map(l => `<div class="log-line ${l.cls}">${l.msg}</div>`)
+      .join('');
+  }
+};
+
+// ============================================================
+// STATE MACHINE
+// ============================================================
+const GameState = {
+  MENU: 'menu',
+  PLAYING: 'playing',
+  PAUSED: 'paused',
+  GAME_OVER: 'gameover',
+  LEVEL_COMPLETE: 'levelcomplete',
+  WIN: 'win',
+};
+
+// ============================================================
+// MAIN GAME CLASS
+// ============================================================
+class Game {
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.trackerCanvas = document.getElementById('motion-tracker-canvas');
+    this.trackerCtx = this.trackerCanvas.getContext('2d');
+    this.sound = new SoundSystem();
+    this.state = GameState.MENU;
+    this.floor = 1;
+    this.totalFloors = 5;
+    this.lastTime = 0;
+    this.elapsed = 0;
+    this._interactWasDown = false;
+    this._lightToggleWasDown = false;
+    this._footstepTimer = 0;
+    this._alienSoundTimer = 0;
+    this._attackTimer = 0;
+    this._alienReroute = 0;
+    this._wanderTimer = 0;
+    this._wanderDir = { dx: 1, dy: 0 };
+  }
+
+  init() {
+    Input.init();
+    this._generateLevel();
+    this.state = GameState.PLAYING;
+    requestAnimationFrame(t => this._loop(t));
+  }
+
+  _generateLevel() {
+    const gen = new MapGenerator(CONFIG.COLS, CONFIG.ROWS);
+    const result = gen.generate();
+    this.tiles = result.tiles;
+    this.rooms = result.rooms;
+    this.fov = new FOVSystem(this.tiles, CONFIG.COLS, CONFIG.ROWS);
+    this.pathfinder = new Pathfinder(this.fov);
+
+    // Seen tiles (fog of war)
+    this.seen = Array.from({ length: CONFIG.ROWS }, () => Array(CONFIG.COLS).fill(false));
+
+    // Player
+    this.player = {
+      x: result.playerStart.x,
+      y: result.playerStart.y,
+      health: CONFIG.PLAYER_MAX_HEALTH,
+      stress: 0,
+      o2: CONFIG.PLAYER_MAX_O2,
+      hasCard: false,
+      lightOn: true,
+      facing: { dx: 1, dy: 0 },
+    };
+
+    // Alien
+    this.alien = {
+      x: result.alienStart.x,
+      y: result.alienStart.y,
+      state: 'wander', // wander | hunt | investigate
+      path: [],
+      lastKnownPlayer: null,
+      speed: CONFIG.ALIEN_BASE_SPEED,
+    };
+
+    this.exitPos = result.exitPos;
+    this.items = result.items;
+
+    // Visible set
+    this.visible = new Set();
+    this._updateFOV();
+
+    GameLog.add(`// DECK ${String(this.floor).padStart(2,'0')} — BREACH IMMINENT`, 'important');
+  }
+
+  _loop(timestamp) {
+    if (this.state === GameState.PLAYING || this.state === GameState.PAUSED) {
+      requestAnimationFrame(t => this._loop(t));
+    }
+    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.05);
+    this.lastTime = timestamp;
+    if (this.state === GameState.PLAYING) {
+      this.elapsed += dt;
+      this._update(dt);
+    }
+    this._render();
+    this._renderHUD();
+    this._renderTracker();
+  }
+
+  // ---- UPDATE ----
+  _update(dt) {
+    this._updatePlayer(dt);
+    this._updateAlien(dt);
+    this._updateStress(dt);
+    this._updateFOV();
+    this._checkInteraction();
+    this._checkPickups();
+  }
+
+  _updatePlayer(dt) {
+    const p = this.player;
+    const mv = Input.getMovement();
+    const sprint = Input.isSprinting() && (mv.dx !== 0 || mv.dy !== 0);
+    const speed = sprint ? CONFIG.PLAYER_SPRINT : CONFIG.PLAYER_SPEED;
+
+    // Move
+    const nx = p.x + mv.dx * speed * dt;
+    const ny = p.y + mv.dy * speed * dt;
+
+    if (this._canMove(nx, p.y)) p.x = nx;
+    if (this._canMove(p.x, ny)) p.y = ny;
+
+    if (mv.dx !== 0 || mv.dy !== 0) {
+      p.facing = { dx: mv.dx || p.facing.dx, dy: mv.dy || p.facing.dy };
+
+      // Hluk pouze při sprintu
+      if (sprint) {
+        this._footstepTimer -= dt;
+        if (this._footstepTimer <= 0) {
+          this.sound.footstep(true);
+          this._footstepTimer = CONFIG.FOOTSTEP_SPRINT_INTERVAL;
+
+          // Sprint generuje hluk — alien slyší
+          const distToAlien = Utils.distTiles(
+            Utils.worldToTile(p.x, p.y),
+            Utils.worldToTile(this.alien.x, this.alien.y)
+          );
+          if (distToAlien <= CONFIG.ALIEN_HEARING_SPRINT && this.alien.state !== 'hunt') {
+            this.alien.state = 'investigate';
+            this.alien.lastKnownPlayer = { ...Utils.worldToTile(p.x, p.y) };
+            GameLog.add('// POHYB DETEKOVÁN — ZPOMAL', 'danger');
+          }
+        }
+      } else {
+        this._footstepTimer = 0; // walk = ticho, žádný timer
+      }
+    } else {
+      this._footstepTimer = 0;
+    }
+
+    // O2 drain in vents
+    const pt = Utils.worldToTile(p.x, p.y);
+    if (this.tiles[pt.y] && this.tiles[pt.y][pt.x] === TILE.VENT) {
+      p.o2 = Math.max(0, p.o2 - CONFIG.O2_DRAIN * dt * 20);
+      if (p.o2 <= 0) { p.health -= 5 * dt; }
+    } else {
+      p.o2 = Math.min(CONFIG.PLAYER_MAX_O2, p.o2 + 3 * dt);
+    }
+
+    // Light toggle
+    const fDown = Input.isDown('KeyF');
+    if (fDown && !this._lightToggleWasDown) { p.lightOn = !p.lightOn; }
+    this._lightToggleWasDown = fDown;
+
+    // Death check
+    if (p.health <= 0) {
+      this.state = GameState.GAME_OVER;
+      this.sound.death();
+      showOverlay('GAME OVER', 'YOU WERE HUNTED', 'red', 'RETRY', () => this._restartFloor());
+    }
+  }
+
+  _updateAlien(dt) {
+    const a = this.alien;
+    const playerTile = Utils.worldToTile(this.player.x, this.player.y);
+    const alienTile = Utils.worldToTile(a.x, a.y);
+    const distToPlayer = Utils.dist(
+      { x: a.x, y: a.y },
+      { x: this.player.x, y: this.player.y }
+    ) / CONFIG.TILE;
+
+    // --- Cone of vision: může vidět hráče? ---
+    const canSeePlayer = this._alienCanSeePlayer(alienTile, distToPlayer);
+
+    if (canSeePlayer) {
+      if (a.state !== 'hunt') {
+        a.state = 'hunt';
+        a.lostSightTimer = 0;
+        this.sound.alarm();
+        GameLog.add('// XENOMORF MÁ VIZUÁLNÍ KONTAKT — UTÍ KEJ', 'danger');
+      }
+      a.lastKnownPlayer = { ...playerTile };
+      a.lostSightTimer = 0;
+    } else if (a.state === 'hunt') {
+      // Alien ztratil hráče z dohledu — odpočítává čas
+      a.lostSightTimer = (a.lostSightTimer || 0) + dt;
+      if (a.lostSightTimer >= CONFIG.ALIEN_LOSE_HUNT_TIME) {
+        a.state = 'investigate';
+        a.path = [];
+        GameLog.add('// XENOMORF ZTRATIL STOPU — SCHOVEJ SE', 'important');
+      }
+    }
+
+    // --- Rychlost podle stavu ---
+    if (a.state === 'hunt') {
+      a.speed = CONFIG.ALIEN_HUNT_SPEED;
+    } else if (a.state === 'investigate') {
+      a.speed = CONFIG.ALIEN_INVESTIGATE_SPEED;
+    } else {
+      a.speed = CONFIG.ALIEN_BASE_SPEED;
+    }
+
+    // --- Pohyb ---
+    if (a.state === 'hunt') {
+      // Přepočítávej cestu průběžně
+      this._alienReroute -= dt;
+      if (this._alienReroute <= 0 || a.path.length === 0) {
+        a.path = this.pathfinder.findPath(alienTile.x, alienTile.y, playerTile.x, playerTile.y);
+        this._alienReroute = 0.4;
+      }
+      this._moveAlongPath(dt);
+    } else if (a.state === 'investigate') {
+      if (a.lastKnownPlayer) {
+        this._alienReroute -= dt;
+        if (this._alienReroute <= 0 || a.path.length === 0) {
+          a.path = this.pathfinder.findPath(alienTile.x, alienTile.y, a.lastKnownPlayer.x, a.lastKnownPlayer.y);
+          this._alienReroute = 1.5;
+        }
+        this._moveAlongPath(dt);
+        // Dorazil na místo — přechod zpět na wander
+        if (alienTile.x === a.lastKnownPlayer.x && alienTile.y === a.lastKnownPlayer.y) {
+          a.state = 'wander';
+          a.path = [];
+          a.lastKnownPlayer = null;
+          GameLog.add('// NEBEZPEČÍ POMINULO', '');
+        }
+      } else {
+        a.state = 'wander';
+      }
+    } else {
+      this._alienWander(dt);
+    }
+
+    // --- Útok ---
+    if (distToPlayer <= CONFIG.ALIEN_ATTACK_RANGE) {
+      this._attackTimer -= dt;
+      if (this._attackTimer <= 0) {
+        this.player.health -= CONFIG.ALIEN_ATTACK_DAMAGE;
+        this._attackTimer = CONFIG.ALIEN_ATTACK_COOLDOWN;
+        GameLog.add('// KONTAKT — POŠKOZENÍ PŘIJATO', 'danger');
+        this.sound.alarm();
+      }
+    }
+
+    // --- Ambient zvuk podle vzdálenosti ---
+    if (distToPlayer <= 15) {
+      this._alienSoundTimer -= dt;
+      if (this._alienSoundTimer <= 0) {
+        this.sound.alienNear();
+        const interval = distToPlayer < 5 ? 1.5 : distToPlayer < 10 ? 4 : 8;
+        this._alienSoundTimer = interval + Math.random() * 2;
+      }
+    }
+  }
+
+  // Kužel výhledu aliena — zkontroluje úhel a zda není zeď v cestě
+  _alienCanSeePlayer(alienTile, distToPlayer) {
+    if (distToPlayer > CONFIG.ALIEN_VISION_DIST) return false;
+
+    const a = this.alien;
+    const p = this.player;
+
+    // Směr pohybu aliena (facing)
+    const facingAngle = Math.atan2(a.vy || 0, a.vx || 1);
+    const toPlayerAngle = Math.atan2(p.y - a.y, p.x - a.x);
+
+    let angleDiff = Math.abs(facingAngle - toPlayerAngle);
+    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+    const coneHalf = (CONFIG.ALIEN_VISION_CONE * Math.PI) / 180;
+    if (angleDiff > coneHalf) return false;
+
+    // Musí být v osvětlené oblasti (hráčovo FOV) nebo velmi blízko
+    if (distToPlayer > 2 && !this.visible.has(`${alienTile.x},${alienTile.y}`)) return false;
+
+    return true;
+  }
+
+  _moveAlongPath(dt) {
+    const a = this.alien;
+    if (!a.path || a.path.length === 0) return;
+    const next = a.path[0];
+    const target = Utils.tileToWorld(next.x, next.y);
+    const dx = target.x - a.x;
+    const dy = target.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 2) {
+      a.x = target.x; a.y = target.y;
+      a.path.shift();
+    } else {
+      const step = a.speed * dt;
+      a.vx = dx / dist; // uložit směr pro cone of vision
+      a.vy = dy / dist;
+      a.x += a.vx * step;
+      a.y += a.vy * step;
+    }
+  }
+
+  _alienWander(dt) {
+    const a = this.alien;
+    this._wanderTimer -= dt;
+    if (this._wanderTimer <= 0 || a.path.length === 0) {
+      if (this.rooms.length > 0) {
+        const room = this.rooms[Utils.rng(0, this.rooms.length-1)];
+        const at = Utils.worldToTile(a.x, a.y);
+        a.path = this.pathfinder.findPath(at.x, at.y, room.cx, room.cy);
+      }
+      this._wanderTimer = CONFIG.ALIEN_WANDER_CHANGE + Math.random() * 4;
+    }
+    this._moveAlongPath(dt);
+    // Defaultní facing pokud stojí
+    if (!a.vx) { a.vx = 1; a.vy = 0; }
+  }
+
+  _updateStress(dt) {
+    const p = this.player;
+    const a = this.alien;
+
+    // Radarová vzdálenost = stejná jako motion tracker (skutečná vzdálenost v tiles)
+    const radarDist = Utils.distTiles(
+      Utils.worldToTile(p.x, p.y),
+      Utils.worldToTile(a.x, a.y)
+    );
+
+    let stressRate = 0;
+
+    if (a.state === 'hunt') {
+      // Alien aktivně loví — maximální stres
+      stressRate = CONFIG.STRESS_INCREASE_HUNT;
+    } else if (radarDist <= CONFIG.STRESS_RADAR_NEAR) {
+      // Blip je blízko středu radaru
+      stressRate = CONFIG.STRESS_INCREASE_NEAR;
+    } else if (radarDist <= CONFIG.STRESS_RADAR_MID) {
+      // Blip je vidět na radaru, ale daleko
+      stressRate = CONFIG.STRESS_INCREASE_MID;
+    } else {
+      // Blip mimo radar nebo velmi daleko — stres klesá
+      stressRate = -CONFIG.STRESS_DECAY;
+    }
+
+    p.stress = Utils.clamp(p.stress + stressRate * dt, 0, 100);
+  }
+
+  _updateFOV() {
+    const p = this.player;
+    const pt = Utils.worldToTile(p.x, p.y);
+    const radius = p.lightOn ? CONFIG.FOV_RADIUS : CONFIG.FOV_RADIUS_DARK;
+    this.visible = this.fov.compute(pt.x, pt.y, radius);
+    this.visible.forEach(k => {
+      const [tx, ty] = k.split(',').map(Number);
+      if (ty >= 0 && ty < CONFIG.ROWS && tx >= 0 && tx < CONFIG.COLS) {
+        this.seen[ty][tx] = true;
+      }
+    });
+  }
+
+  _checkInteraction() {
+    const eDown = Input.isDown('KeyE');
+    if (!eDown || this._interactWasDown) { this._interactWasDown = eDown; return; }
+    this._interactWasDown = true;
+
+    const p = this.player;
+    const pt = Utils.worldToTile(p.x, p.y);
+    const dirs = [[0,0],[0,-1],[0,1],[-1,0],[1,0]];
+    for (const [dx,dy] of dirs) {
+      const tx = pt.x+dx, ty = pt.y+dy;
+      if (ty<0||ty>=CONFIG.ROWS||tx<0||tx>=CONFIG.COLS) continue;
+      const t = this.tiles[ty][tx];
+      if (t === TILE.DOOR_CLOSED) {
+        this.tiles[ty][tx] = TILE.DOOR_OPEN;
+        this.sound.door();
+        GameLog.add('// DOOR OVERRIDE — CAUTION: NOISE', 'important');
+        // Noise event
+        const atile = Utils.worldToTile(this.alien.x, this.alien.y);
+        const d = Utils.dist({x:tx,y:ty},{x:atile.x,y:atile.y});
+        if (d <= 8) {
+          this.alien.state = 'investigate';
+          this.alien.lastKnownPlayer = { x:tx, y:ty };
+        }
+        return;
+      }
+      if (t === TILE.EXIT) {
+        if (this.player.hasCard || true) { // always allow for now; extend with card mechanic
+          this._levelComplete();
+          return;
+        } else {
+          GameLog.add('// AIRLOCK SEALED — ACCESS CARD REQUIRED', 'important');
+        }
+      }
+    }
+  }
+
+  _checkPickups() {
+    const p = this.player;
+    const pt = Utils.worldToTile(p.x, p.y);
+    const t = this.tiles[pt.y]?.[pt.x];
+    if (t === TILE.ITEM_CARD) {
+      p.hasCard = true;
+      this.tiles[pt.y][pt.x] = TILE.FLOOR;
+      this.sound.pickup();
+      GameLog.add('// ACCESS CARD ACQUIRED', 'success');
+    }
+    if (t === TILE.ITEM_MEDKIT) {
+      p.health = Math.min(CONFIG.PLAYER_MAX_HEALTH, p.health + 40);
+      this.tiles[pt.y][pt.x] = TILE.FLOOR;
+      this.sound.pickup();
+      GameLog.add('// MED-KIT — HEALTH RESTORED', 'success');
+    }
+  }
+
+  _canMove(wx, wy) {
+    const margin = 3;
+    const corners = [
+      { x: wx - margin, y: wy - margin },
+      { x: wx + margin, y: wy - margin },
+      { x: wx - margin, y: wy + margin },
+      { x: wx + margin, y: wy + margin },
+    ];
+    return corners.every(c => {
+      const t = Utils.worldToTile(c.x, c.y);
+      return this.fov.isPassable(t.x, t.y);
+    });
+  }
+
+  _levelComplete() {
+    this.sound.levelComplete();
+    if (this.floor >= this.totalFloors) {
+      this.state = GameState.WIN;
+      showOverlay('ESCAPED', 'YOU SURVIVED THE DEEP SHIP', 'success',
+        'PLAY AGAIN', () => { this.floor = 1; this._generateLevel(); this.state = GameState.PLAYING; });
+    } else {
+      this.floor++;
+      this.state = GameState.LEVEL_COMPLETE;
+      showOverlay(`DECK ${this.floor - 1} CLEARED`, `PROCEEDING TO DECK ${this.floor}`, 'amber',
+        'NEXT DECK', () => { this._generateLevel(); this.state = GameState.PLAYING; });
+    }
+  }
+
+  _restartFloor() {
+    this.player.health = CONFIG.PLAYER_MAX_HEALTH;
+    this._generateLevel();
+    this.state = GameState.PLAYING;
+    this.elapsed = 0;
+    hideOverlay();
+  }
+
+  // ---- RENDER ----
+  _render() {
+    const c = this.ctx;
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+
+    const p = this.player;
+    const pt = Utils.worldToTile(p.x, p.y);
+
+    // Camera offset: center on player
+    const camX = Math.round(p.x - CONFIG.CANVAS_W / 2);
+    const camY = Math.round(p.y - CONFIG.CANVAS_H / 2);
+
+    c.save();
+    c.translate(-camX, -camY);
+
+    // Draw tiles
+    const startTx = Math.max(0, Math.floor(camX / CONFIG.TILE));
+    const endTx = Math.min(CONFIG.COLS - 1, Math.ceil((camX + CONFIG.CANVAS_W) / CONFIG.TILE));
+    const startTy = Math.max(0, Math.floor(camY / CONFIG.TILE));
+    const endTy = Math.min(CONFIG.ROWS - 1, Math.ceil((camY + CONFIG.CANVAS_H) / CONFIG.TILE));
+
+    for (let ty = startTy; ty <= endTy; ty++) {
+      for (let tx = startTx; tx <= endTx; tx++) {
+        const tile = this.tiles[ty][tx];
+        const isVisible = this.visible.has(`${tx},${ty}`);
+        const isSeen = this.seen[ty][tx];
+        const wx = tx * CONFIG.TILE;
+        const wy = ty * CONFIG.TILE;
+
+        if (tile === TILE.EMPTY || tile === TILE.WALL) {
+          if (isVisible) {
+            c.fillStyle = CONFIG.COLOR_WALL_LIT;
+            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
+            c.fillStyle = 'rgba(0,255,100,0.05)';
+            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
+          } else if (isSeen) {
+            c.fillStyle = CONFIG.COLOR_WALL;
+            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
+          }
+          continue;
+        }
+
+        if (!isVisible && !isSeen) continue;
+
+        // Floor/vent color
+        let color;
+        if (isVisible) {
+          switch(tile) {
+            case TILE.VENT: color = CONFIG.COLOR_VENT_LIT; break;
+            case TILE.DOOR_CLOSED: color = CONFIG.COLOR_DOOR_CLOSED; break;
+            case TILE.DOOR_OPEN: color = CONFIG.COLOR_DOOR_OPEN; break;
+            case TILE.EXIT: color = '#003311'; break;
+            default: color = CONFIG.COLOR_FLOOR_LIT;
+          }
+        } else {
+          color = CONFIG.COLOR_FLOOR_SEEN;
+        }
+
+        c.fillStyle = color;
+        c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
+
+        if (isVisible) {
+          // Tile details
+          if (tile === TILE.VENT) {
+            c.strokeStyle = 'rgba(0,255,100,0.2)';
+            c.lineWidth = 0.5;
+            c.strokeRect(wx+1, wy+1, CONFIG.TILE-2, CONFIG.TILE-2);
+            c.beginPath();
+            c.moveTo(wx+2, wy+2); c.lineTo(wx+CONFIG.TILE-2, wy+CONFIG.TILE-2);
+            c.moveTo(wx+CONFIG.TILE-2, wy+2); c.lineTo(wx+2, wy+CONFIG.TILE-2);
+            c.stroke();
+          }
+          if (tile === TILE.DOOR_CLOSED) {
+            c.fillStyle = '#44aa55';
+            c.fillRect(wx+2, wy+1, CONFIG.TILE-4, CONFIG.TILE-2);
+            c.fillStyle = '#ffaa00';
+            c.fillRect(wx + CONFIG.TILE/2 - 1, wy + CONFIG.TILE/2 - 1, 2, 2);
+          }
+          if (tile === TILE.DOOR_OPEN) {
+            c.strokeStyle = '#44aa55';
+            c.lineWidth = 1;
+            c.strokeRect(wx+1, wy+1, CONFIG.TILE-2, CONFIG.TILE-2);
+          }
+          if (tile === TILE.EXIT) {
+            // Pulsing exit marker
+            const pulse = (Math.sin(Date.now() / 400) + 1) / 2;
+            c.fillStyle = `rgba(0,255,120,${0.3 + pulse * 0.4})`;
+            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
+            c.fillStyle = CONFIG.COLOR_EXIT;
+            c.font = `${CONFIG.TILE-2}px monospace`;
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.fillText('▲', wx + CONFIG.TILE/2, wy + CONFIG.TILE/2);
+          }
+          if (tile === TILE.ITEM_CARD) {
+            c.fillStyle = CONFIG.COLOR_ITEM;
+            c.font = `${CONFIG.TILE-3}px monospace`;
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.fillText('▪', wx + CONFIG.TILE/2, wy + CONFIG.TILE/2);
+          }
+          if (tile === TILE.ITEM_MEDKIT) {
+            c.fillStyle = '#ff4444';
+            c.font = `${CONFIG.TILE-3}px monospace`;
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.fillText('+', wx + CONFIG.TILE/2, wy + CONFIG.TILE/2);
+          }
+        }
+
+        // Grid lines (subtle)
+        if (isVisible) {
+          c.strokeStyle = 'rgba(0,80,30,0.3)';
+          c.lineWidth = 0.5;
+          c.strokeRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
+        }
+      }
+    }
+
+    // Fog of war darkness overlay (vignette around FOV edge)
+    if (p.lightOn) {
+      const px = p.x, py = p.y;
+      const fogRadius = CONFIG.FOV_RADIUS * CONFIG.TILE;
+      const grad = c.createRadialGradient(px, py, fogRadius*0.5, px, py, fogRadius*1.1);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.95)');
+      c.fillStyle = grad;
+      c.fillRect(camX, camY, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+    }
+
+    // Draw alien (only if visible)
+    const at = Utils.worldToTile(this.alien.x, this.alien.y);
+    if (this.visible.has(`${at.x},${at.y}`)) {
+      const ax = this.alien.x, ay = this.alien.y;
+      const pulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
+      c.fillStyle = `rgba(80,255,120,${pulse})`;
+      c.font = `${CONFIG.TILE}px monospace`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('X', ax, ay);
+      // Glow
+      c.shadowColor = '#00ff55';
+      c.shadowBlur = 8;
+      c.fillText('X', ax, ay);
+      c.shadowBlur = 0;
+    }
+
+    // Draw player
+    const stress = this.player.stress;
+    const shakeX = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
+    const shakeY = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
+    c.fillStyle = CONFIG.COLOR_PLAYER;
+    c.font = `${CONFIG.TILE}px monospace`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText('@', p.x + shakeX, p.y + shakeY);
+
+    // Light beam indicator
+    if (p.lightOn) {
+      c.strokeStyle = 'rgba(255,255,200,0.04)';
+      c.lineWidth = CONFIG.FOV_RADIUS * CONFIG.TILE * 0.4;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(p.x, p.y);
+      c.lineTo(
+        p.x + p.facing.dx * CONFIG.FOV_RADIUS * CONFIG.TILE * 0.5,
+        p.y + p.facing.dy * CONFIG.FOV_RADIUS * CONFIG.TILE * 0.5
+      );
+      c.stroke();
+    }
+
+    c.restore();
+
+    // Screen flash when alien attacks (red)
+    if (this._attackTimer > CONFIG.ALIEN_ATTACK_COOLDOWN - 0.15) {
+      c.fillStyle = 'rgba(255,0,0,0.25)';
+      c.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+    }
+  }
+
+  _renderHUD() {
+    const p = this.player;
+
+    // Bars
+    document.getElementById('bar-health').style.width = p.health + '%';
+    document.getElementById('bar-stress').style.width = p.stress + '%';
+    document.getElementById('bar-o2').style.width = p.o2 + '%';
+    document.getElementById('val-health').textContent = Math.round(p.health);
+    document.getElementById('val-stress').textContent = Math.round(p.stress);
+    document.getElementById('val-o2').textContent = Math.round(p.o2);
+
+    // Alien distance + stav
+    const radarDist = Utils.distTiles(
+      Utils.worldToTile(p.x, p.y),
+      Utils.worldToTile(this.alien.x, this.alien.y)
+    );
+    const alienEl = document.getElementById('alien-dist');
+    if (this.alien.state === 'hunt') {
+      alienEl.textContent = '⚠ LOVÍ';
+      alienEl.style.color = 'var(--red)';
+    } else if (this.alien.state === 'investigate') {
+      alienEl.textContent = '? PÁTRÁ';
+      alienEl.style.color = 'var(--amber)';
+    } else {
+      alienEl.textContent = Math.round(radarDist * 1.5) + 'm';
+      alienEl.style.color = radarDist < 8 ? 'var(--amber)' : 'var(--green)';
+    }
+
+    // Time
+    const m = Math.floor(this.elapsed / 60);
+    const s = Math.floor(this.elapsed % 60);
+    document.getElementById('time-display').textContent =
+      `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+    // Floor
+    document.getElementById('floor-num').textContent = String(this.floor).padStart(2,'0');
+  }
+
+  _renderTracker() {
+    const tc = this.trackerCtx;
+    const W = 80, H = 80, R = 36;
+    const cx = W/2, cy = H/2;
+
+    tc.fillStyle = '#020a04';
+    tc.fillRect(0, 0, W, H);
+
+    // Radar circles
+    tc.strokeStyle = 'rgba(0,255,100,0.15)';
+    tc.lineWidth = 0.5;
+    [R/3, R*2/3, R].forEach(r => {
+      tc.beginPath();
+      tc.arc(cx, cy, r, 0, Math.PI*2);
+      tc.stroke();
+    });
+
+    // Sweep line
+    const sweep = (Date.now() / 1000) % (Math.PI * 2);
+    tc.strokeStyle = 'rgba(0,255,100,0.4)';
+    tc.lineWidth = 1;
+    tc.beginPath();
+    tc.moveTo(cx, cy);
+    tc.lineTo(cx + Math.cos(sweep)*R, cy + Math.sin(sweep)*R);
+    tc.stroke();
+
+    // Player dot
+    tc.fillStyle = '#ffffff';
+    tc.beginPath();
+    tc.arc(cx, cy, 2, 0, Math.PI*2);
+    tc.fill();
+
+    // Alien blip (distance only — authentic to film)
+    const p = this.player, a = this.alien;
+    const adx = (a.x - p.x) / CONFIG.TILE;
+    const ady = (a.y - p.y) / CONFIG.TILE;
+    const adist = Math.hypot(adx, ady);
+    const maxDist = 20;
+    if (adist < maxDist) {
+      const scale = Math.min(adist / maxDist, 1) * R;
+      const bx = cx + (adx / adist) * scale;
+      const by = cy + (ady / adist) * scale;
+      const pulse = (Math.sin(Date.now()/150) + 1) / 2;
+      tc.fillStyle = `rgba(255,80,80,${0.7 + pulse*0.3})`;
+      tc.beginPath();
+      tc.arc(bx, by, 3, 0, Math.PI*2);
+      tc.fill();
+    }
+
+    // Border
+    tc.strokeStyle = 'rgba(0,255,100,0.3)';
+    tc.lineWidth = 1;
+    tc.beginPath();
+    tc.arc(cx, cy, R+2, 0, Math.PI*2);
+    tc.stroke();
+  }
+}
+
+// ============================================================
+// OVERLAY HELPERS
+// ============================================================
+let game;
+
+function showOverlay(title, msg, type, btnLabel, onBtn) {
+  const ov = document.getElementById('overlay');
+  ov.innerHTML = `
+    <h1>${title}</h1>
+    <div class="message ${type}">${msg}</div>
+    <button onclick="hideOverlay(); (window._overlayBtn && window._overlayBtn())">${btnLabel}</button>
+  `;
+  window._overlayBtn = onBtn;
+  ov.style.display = 'flex';
+}
+
+function hideOverlay() {
+  document.getElementById('overlay').style.display = 'none';
+}
+
+function startGame() {
+  hideOverlay();
+  if (!game) {
+    game = new Game();
+    game.init();
+  } else {
+    game.floor = 1;
+    game._generateLevel();
+    game.state = GameState.PLAYING;
+    game.elapsed = 0;
+    requestAnimationFrame(t => game._loop(t));
+  }
+}
+</script>
+</body>
+</html>
