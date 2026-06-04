@@ -40,7 +40,7 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    max-width: 900px;
+    max-width: 1020px;
     padding: 8px;
   }
 
@@ -277,7 +277,7 @@
   </div>
 
   <div id="canvas-container">
-    <canvas id="gameCanvas" width="700" height="490"></canvas>
+    <canvas id="gameCanvas" width="980" height="630"></canvas>
     <div id="scanline-overlay"></div>
   </div>
 
@@ -329,14 +329,14 @@
 // ============================================================
 const CONFIG = {
   TILE: 14,
-  COLS: 50,
-  ROWS: 35,
-  CANVAS_W: 700,
-  CANVAS_H: 490,
+  COLS: 80,
+  ROWS: 55,
+  CANVAS_W: 980,
+  CANVAS_H: 630,
 
   // Viewport (tiles visible)
-  VIEW_COLS: 50,
-  VIEW_ROWS: 35,
+  VIEW_COLS: 70,
+  VIEW_ROWS: 45,
 
   // FOV
   FOV_RADIUS: 8,
@@ -905,7 +905,7 @@ class Game {
     if (this.state === GameState.PLAYING || this.state === GameState.PAUSED) {
       requestAnimationFrame(t => this._loop(t));
     }
-    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.05);
+    const dt = Math.min((timestamp - (this.lastTime || timestamp)) / 1000, 0.05);
     this.lastTime = timestamp;
     if (this.state === GameState.PLAYING) {
       this.elapsed += dt;
@@ -1145,29 +1145,39 @@ class Game {
     const p = this.player;
     const a = this.alien;
 
-    // Radarová vzdálenost = stejná jako motion tracker (skutečná vzdálenost v tiles)
+    // Radarová vzdálenost v tiles — distTiles bere světové souřadnice (pixely)
     const radarDist = Utils.distTiles(
-      Utils.worldToTile(p.x, p.y),
-      Utils.worldToTile(a.x, a.y)
+      { x: p.x, y: p.y },
+      { x: a.x, y: a.y }
     );
 
     let stressRate = 0;
 
     if (a.state === 'hunt') {
-      // Alien aktivně loví — maximální stres
+      // Alien aktivně loví — maximální stres, rychlý nárůst
       stressRate = CONFIG.STRESS_INCREASE_HUNT;
     } else if (radarDist <= CONFIG.STRESS_RADAR_NEAR) {
-      // Blip je blízko středu radaru
+      // Blip blízko středu radaru
       stressRate = CONFIG.STRESS_INCREASE_NEAR;
     } else if (radarDist <= CONFIG.STRESS_RADAR_MID) {
-      // Blip je vidět na radaru, ale daleko
+      // Blip viditelný na radaru, ale daleko
       stressRate = CONFIG.STRESS_INCREASE_MID;
+    } else if (radarDist <= CONFIG.STRESS_RADAR_MAX) {
+      // Na hranici dosahu radaru — stres pomalu klesá
+      stressRate = -8;
     } else {
-      // Blip mimo radar nebo velmi daleko — stres klesá
-      stressRate = -CONFIG.STRESS_DECAY;
+      // Mimo radar — stres klesá rychle k nule
+      stressRate = -20;
     }
 
-    p.stress = Utils.clamp(p.stress + stressRate * dt, 0, 100);
+    const newStress = Utils.clamp(p.stress + stressRate * dt, 0, 100);
+
+    // Pokud je alien mimo radar a stres je pod 5 — ořízni na nulu
+    if (radarDist > CONFIG.STRESS_RADAR_MAX && a.state === 'wander' && newStress < 5) {
+      p.stress = 0;
+    } else {
+      p.stress = newStress;
+    }
   }
 
   _updateFOV() {
@@ -1467,8 +1477,8 @@ class Game {
 
     // Alien distance + stav
     const radarDist = Utils.distTiles(
-      Utils.worldToTile(p.x, p.y),
-      Utils.worldToTile(this.alien.x, this.alien.y)
+      { x: p.x, y: p.y },
+      { x: this.alien.x, y: this.alien.y }
     );
     const alienEl = document.getElementById('alien-dist');
     if (this.alien.state === 'hunt') {
