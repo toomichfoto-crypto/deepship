@@ -243,6 +243,81 @@
   .blink { animation: blink 1s step-end infinite; }
   @keyframes blink { 50% { opacity: 0; } }
 
+  #pause-overlay {
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.82);
+    z-index: 20;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    pointer-events: all;
+  }
+
+  #pause-overlay h1 {
+    font-family: 'Orbitron', monospace;
+    font-size: 28px;
+    color: var(--amber);
+    letter-spacing: 8px;
+    margin-bottom: 6px;
+  }
+
+  #pause-overlay .pause-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 4px;
+    margin-bottom: 36px;
+  }
+
+  #pause-overlay .pause-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+  }
+
+  #pause-overlay button {
+    background: transparent;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    letter-spacing: 3px;
+    padding: 10px 40px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 260px;
+  }
+
+  #pause-overlay button:hover {
+    background: var(--green);
+    color: var(--bg);
+  }
+
+  #pause-overlay button.amber-btn {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  #pause-overlay button.amber-btn:hover {
+    background: var(--amber);
+    color: var(--bg);
+  }
+
+  #pause-overlay .controls-hint {
+    margin-top: 32px;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    line-height: 2;
+    text-align: center;
+  }
+  #pause-overlay .controls-hint span {
+    color: var(--green);
+  }
+
   #floor-indicator {
     font-family: 'Orbitron', monospace;
     font-size: 11px;
@@ -279,6 +354,21 @@
   <div id="canvas-container">
     <canvas id="gameCanvas" width="980" height="630"></canvas>
     <div id="scanline-overlay"></div>
+    <div id="pause-overlay">
+      <h1>// PAUSED //</h1>
+      <div class="pause-sub">SYSTEM SUSPENDED</div>
+      <div class="pause-menu">
+        <button onclick="resumeGame()">[ RESUME ]</button>
+        <button class="amber-btn" onclick="restartGame()">[ NEW GAME ]</button>
+      </div>
+      <div class="controls-hint">
+        <span>WASD</span> / ARROWS — move &nbsp;|&nbsp;
+        <span>SHIFT</span> — sprint &nbsp;|&nbsp;
+        <span>E</span> — interact &nbsp;|&nbsp;
+        <span>F</span> — flashlight &nbsp;|&nbsp;
+        <span>ESC</span> — pause
+      </div>
+    </div>
   </div>
 
   <div id="hud-bottom">
@@ -542,6 +632,11 @@ const Input = {
   init() {
     window.addEventListener('keydown', e => {
       this.keys[e.code] = true;
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        togglePause();
+        return;
+      }
       e.preventDefault();
     });
     window.addEventListener('keyup', e => {
@@ -1059,8 +1154,10 @@ class Game {
       this._update(dt);
     }
     this._render();
-    this._renderHUD();
-    this._renderTracker();
+    if (this.state !== GameState.PAUSED) {
+      this._renderHUD();
+      this._renderTracker();
+    }
   }
 
   // ---- UPDATE ----
@@ -1481,12 +1578,14 @@ class Game {
         const isVisible = this.visible.has(`${tx},${ty}`);
         const isSeen = this.seen[ty][tx];
         if (!isVisible && !isSeen) continue;
-        // Cull: skip tiles far off-screen in iso space
+        // Cull: iso coords are relative to translated origin
         const iso = IsoHelper.toScreen(tx, ty);
-        const sx = iso.x + originX;
-        const sy = iso.y + originY;
-        if (sx < -TW*2 - WH || sx > CONFIG.CANVAS_W + TW*2 ||
-            sy < -TH*2 - WH*4 || sy > CONFIG.CANVAS_H + TH*2 + WH) continue;
+        // iso.x,iso.y are in translated space; add originX/Y to get canvas space
+        const csx = iso.x + originX;
+        const csy = iso.y + originY;
+        const margin = TW * 4 + WH * 4;
+        if (csx < -margin || csx > CONFIG.CANVAS_W + margin ||
+            csy < -margin || csy > CONFIG.CANVAS_H + margin) continue;
         tileList.push({tx, ty, iso, isVisible, isSeen, depth: tx + ty});
       }
     }
@@ -1706,7 +1805,9 @@ class Game {
       }
     }
 
-    // Fog vignette overlay
+    c.restore();
+
+    // Fog vignette overlay (in canvas space, after restore)
     if (p.lightOn) {
       const fogRadius = CONFIG.FOV_RADIUS * (TW + TH) * 0.8;
       const grad = c.createRadialGradient(
@@ -1716,10 +1817,8 @@ class Game {
       grad.addColorStop(0, 'rgba(0,0,0,0)');
       grad.addColorStop(1, 'rgba(0,0,0,0.95)');
       c.fillStyle = grad;
-      c.fillRect(-originX, -originY, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+      c.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
     }
-
-    c.restore();
 
     // Screen flash when alien attacks (red)
     if (this._attackTimer > CONFIG.ALIEN_ATTACK_COOLDOWN - 0.15) {
@@ -1852,11 +1951,34 @@ function startGame() {
   } else {
     game.floor = 1;
     game.elapsed = 0;
-    game.lastTime = 0;  // reset aby první dt nebyl obří
+    game.lastTime = 0;
     game._generateLevel();
     game.state = GameState.PLAYING;
     requestAnimationFrame(t => game._loop(t));
   }
+}
+
+function togglePause() {
+  if (!game) return;
+  if (game.state === GameState.PLAYING) {
+    game.state = GameState.PAUSED;
+    game.lastTime = 0; // reset dt tak aby při resumu nebyl spike
+    document.getElementById('pause-overlay').style.display = 'flex';
+  } else if (game.state === GameState.PAUSED) {
+    resumeGame();
+  }
+}
+
+function resumeGame() {
+  if (!game) return;
+  document.getElementById('pause-overlay').style.display = 'none';
+  game.state = GameState.PLAYING;
+  game.lastTime = 0; // reset dt spike při pokračování
+}
+
+function restartGame() {
+  document.getElementById('pause-overlay').style.display = 'none';
+  startGame();
 }
 </script>
 </body>
