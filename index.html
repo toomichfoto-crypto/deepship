@@ -1081,6 +1081,7 @@ class Game {
     this._footstepTimer = 0;
     this._alienSoundTimer = 0;
     this._attackTimer = 0;
+    this._attackFlash = false;
     this._alienReroute = 0;
     this._wanderTimer = 0;
     this._wanderDir = { dx: 1, dy: 0 };
@@ -1139,6 +1140,17 @@ class Game {
     // Visible set
     this.visible = new Set();
     this._updateFOV();
+
+    // Pre-compute painter's order (tx+ty ascending) — done once per level
+    this._paintOrder = [];
+    for (let depth = 0; depth < CONFIG.COLS + CONFIG.ROWS; depth++) {
+      for (let ty = 0; ty < CONFIG.ROWS; ty++) {
+        const tx = depth - ty;
+        if (tx >= 0 && tx < CONFIG.COLS) {
+          this._paintOrder.push({tx, ty});
+        }
+      }
+    }
 
     GameLog.add(`// DECK ${String(this.floor).padStart(2,'0')} — BREACH IMMINENT`, 'important');
   }
@@ -1310,6 +1322,8 @@ class Game {
       if (this._attackTimer <= 0) {
         this.player.health -= CONFIG.ALIEN_ATTACK_DAMAGE;
         this._attackTimer = CONFIG.ALIEN_ATTACK_COOLDOWN;
+        this._attackFlash = true;
+        setTimeout(() => { this._attackFlash = false; }, 150);
         GameLog.add('// KONTAKT — POŠKOZENÍ PŘIJATO', 'danger');
         this.sound.alarm();
       }
@@ -1570,31 +1584,21 @@ class Game {
     c.save();
     c.translate(originX, originY);
 
-    // Painter's algorithm: render in order of tx+ty (back to front)
-    // Collect visible tile range in iso space - render all tiles sorted
-    const tileList = [];
-    for (let ty = 0; ty < CONFIG.ROWS; ty++) {
-      for (let tx = 0; tx < CONFIG.COLS; tx++) {
-        const isVisible = this.visible.has(`${tx},${ty}`);
-        const isSeen = this.seen[ty][tx];
-        if (!isVisible && !isSeen) continue;
-        // Cull: iso coords are relative to translated origin
-        const iso = IsoHelper.toScreen(tx, ty);
-        // iso.x,iso.y are in translated space; add originX/Y to get canvas space
-        const csx = iso.x + originX;
-        const csy = iso.y + originY;
-        const margin = TW * 4 + WH * 4;
-        if (csx < -margin || csx > CONFIG.CANVAS_W + margin ||
-            csy < -margin || csy > CONFIG.CANVAS_H + margin) continue;
-        tileList.push({tx, ty, iso, isVisible, isSeen, depth: tx + ty});
-      }
-    }
-    // Sort back to front
-    tileList.sort((a, b) => a.depth - b.depth);
-
     const pulse = (Math.sin(Date.now() / 400) + 1) / 2;
+    const margin = TW * 4 + WH * 4;
 
-    for (const {tx, ty, iso, isVisible, isSeen} of tileList) {
+    // Painter's algorithm using pre-sorted order (no sort every frame)
+    for (const entry of this._paintOrder) {
+      const tx = entry.tx, ty = entry.ty;
+      const isVisible = this.visible.has(`${tx},${ty}`);
+      const isSeen = this.seen[ty][tx];
+      if (!isVisible && !isSeen) continue;
+      const iso = IsoHelper.toScreen(tx, ty);
+      // Cull off-screen tiles (canvas-space)
+      const csx = iso.x + originX;
+      const csy = iso.y + originY;
+      if (csx < -margin || csx > CONFIG.CANVAS_W + margin ||
+          csy < -margin || csy > CONFIG.CANVAS_H + margin) continue;
       const tile = this.tiles[ty][tx];
       const sx = iso.x, sy = iso.y;
 
@@ -1820,8 +1824,8 @@ class Game {
       c.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
     }
 
-    // Screen flash when alien attacks (red)
-    if (this._attackTimer > CONFIG.ALIEN_ATTACK_COOLDOWN - 0.15) {
+    // Screen flash when alien attacks (red) — only after first real attack
+    if (this._attackFlash) {
       c.fillStyle = 'rgba(255,0,0,0.25)';
       c.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
     }
