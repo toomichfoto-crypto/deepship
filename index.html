@@ -391,6 +391,117 @@ const CONFIG = {
   COLOR_ITEM: '#ffaa00',
   COLOR_ALIEN: '#44ff77',
   COLOR_PLAYER: '#ffffff',
+
+  // Isometric projection
+  ISO_TW: 32,       // isometric tile width (half diamond width)
+  ISO_TH: 16,       // isometric tile height (half diamond height)
+  ISO_WALL_H: 20,   // height of wall extrusion in pixels
+};
+
+// ---- ISO HELPER ----
+const IsoHelper = {
+  // Convert tile coords to isometric screen coords (relative to origin)
+  toScreen(tx, ty) {
+    return {
+      x: (tx - ty) * CONFIG.ISO_TW,
+      y: (tx + ty) * CONFIG.ISO_TH
+    };
+  },
+  // Draw floor diamond
+  drawFloor(c, sx, sy, fillColor, strokeColor) {
+    const tw = CONFIG.ISO_TW, th = CONFIG.ISO_TH;
+    c.beginPath();
+    c.moveTo(sx, sy - th);
+    c.lineTo(sx + tw, sy);
+    c.lineTo(sx, sy + th);
+    c.lineTo(sx - tw, sy);
+    c.closePath();
+    c.fillStyle = fillColor;
+    c.fill();
+    if (strokeColor) {
+      c.strokeStyle = strokeColor;
+      c.lineWidth = 0.5;
+      c.stroke();
+    }
+  },
+  // Draw wall block (top face + south face + east face)
+  drawWall(c, sx, sy, topColor, southColor, eastColor) {
+    const tw = CONFIG.ISO_TW, th = CONFIG.ISO_TH, wh = CONFIG.ISO_WALL_H;
+    // Top face (diamond)
+    c.beginPath();
+    c.moveTo(sx, sy - th);
+    c.lineTo(sx + tw, sy);
+    c.lineTo(sx, sy + th);
+    c.lineTo(sx - tw, sy);
+    c.closePath();
+    c.fillStyle = topColor;
+    c.fill();
+    // South face (left side going down)
+    c.beginPath();
+    c.moveTo(sx - tw, sy);
+    c.lineTo(sx, sy + th);
+    c.lineTo(sx, sy + th + wh);
+    c.lineTo(sx - tw, sy + wh);
+    c.closePath();
+    c.fillStyle = southColor;
+    c.fill();
+    // East face (right side going down)
+    c.beginPath();
+    c.moveTo(sx, sy + th);
+    c.lineTo(sx + tw, sy);
+    c.lineTo(sx + tw, sy + wh);
+    c.lineTo(sx, sy + th + wh);
+    c.closePath();
+    c.fillStyle = eastColor;
+    c.fill();
+    // Outline
+    c.strokeStyle = 'rgba(0,0,0,0.4)';
+    c.lineWidth = 0.5;
+    c.beginPath();
+    c.moveTo(sx, sy - th);
+    c.lineTo(sx + tw, sy);
+    c.lineTo(sx + tw, sy + wh);
+    c.lineTo(sx, sy + th + wh);
+    c.lineTo(sx - tw, sy + wh);
+    c.lineTo(sx - tw, sy);
+    c.closePath();
+    c.stroke();
+  },
+  // Draw a box/crate on a tile (for items, doors etc)
+  drawBox(c, sx, sy, h, topColor, southColor, eastColor) {
+    const tw = CONFIG.ISO_TW * 0.7, th = CONFIG.ISO_TH * 0.7;
+    const ox = sx, oy = sy + CONFIG.ISO_TH * 0.3; // offset to center on floor
+    // Top
+    c.beginPath();
+    c.moveTo(ox, oy - th);
+    c.lineTo(ox + tw, oy);
+    c.lineTo(ox, oy + th);
+    c.lineTo(ox - tw, oy);
+    c.closePath();
+    c.fillStyle = topColor;
+    c.fill();
+    // South
+    c.beginPath();
+    c.moveTo(ox - tw, oy);
+    c.lineTo(ox, oy + th);
+    c.lineTo(ox, oy + th + h);
+    c.lineTo(ox - tw, oy + h);
+    c.closePath();
+    c.fillStyle = southColor;
+    c.fill();
+    // East
+    c.beginPath();
+    c.moveTo(ox, oy + th);
+    c.lineTo(ox + tw, oy);
+    c.lineTo(ox + tw, oy + h);
+    c.lineTo(ox, oy + th + h);
+    c.closePath();
+    c.fillStyle = eastColor;
+    c.fill();
+    c.strokeStyle = 'rgba(0,0,0,0.5)';
+    c.lineWidth = 0.5;
+    c.stroke();
+  }
 };
 
 // Tile types
@@ -665,7 +776,7 @@ class FOVSystem {
           if (blocked) { nextStartSlope = rSlope; blocked = false; }
           continue;
         }
-        if (Utils.dist({x:ox,y:oy},{x:tx,y:ty}) <= radius) {
+        if (Math.hypot(tx - ox, ty - oy) <= radius) {  // tile distance, not pixels
           visible.add(`${tx},${ty}`);
         }
         const isWall = this.tiles[ty][tx] === TILE.WALL || this.tiles[ty][tx] === TILE.EMPTY;
@@ -699,15 +810,44 @@ class Pathfinder {
   findPath(fromTx, fromTy, toTx, toTy) {
     const key = (x,y) => `${x},${y}`;
     const h = (x,y) => Math.abs(x - toTx) + Math.abs(y - toTy);
-    const open = [{ x: fromTx, y: fromTy, g: 0, f: h(fromTx, fromTy) }];
+    // Min-heap priority queue pro O(log n) místo O(n log n) sort
+    const heap = [];
+    const heapPush = (node) => {
+      heap.push(node);
+      let i = heap.length - 1;
+      while (i > 0) {
+        const parent = (i - 1) >> 1;
+        if (heap[parent].f <= heap[i].f) break;
+        [heap[parent], heap[i]] = [heap[i], heap[parent]];
+        i = parent;
+      }
+    };
+    const heapPop = () => {
+      const top = heap[0];
+      const last = heap.pop();
+      if (heap.length > 0) {
+        heap[0] = last;
+        let i = 0;
+        while (true) {
+          let smallest = i;
+          const l = 2*i+1, r = 2*i+2;
+          if (l < heap.length && heap[l].f < heap[smallest].f) smallest = l;
+          if (r < heap.length && heap[r].f < heap[smallest].f) smallest = r;
+          if (smallest === i) break;
+          [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
+          i = smallest;
+        }
+      }
+      return top;
+    };
+    heapPush({ x: fromTx, y: fromTy, g: 0, f: h(fromTx, fromTy) });
     const gScore = { [key(fromTx,fromTy)]: 0 };
     const parent = {};
     const dirs = [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[1,-1],[-1,1],[1,1]];
     let iters = 0;
 
-    while (open.length && iters++ < 500) {
-      open.sort((a,b) => a.f - b.f);
-      const cur = open.shift();
+    while (heap.length && iters++ < 800) {
+      const cur = heapPop();
       if (cur.x === toTx && cur.y === toTy) {
         const path = [];
         let c = key(toTx, toTy);
@@ -722,7 +862,7 @@ class Pathfinder {
         if (gScore[nk] !== undefined && ng >= gScore[nk]) continue;
         gScore[nk] = ng;
         parent[nk] = key(cur.x,cur.y);
-        open.push({ x:nx, y:ny, g:ng, f:ng+h(nx,ny) });
+        heapPush({ x:nx, y:ny, g:ng, f:ng+h(nx,ny) });
       }
     }
     return [];
@@ -893,6 +1033,13 @@ class Game {
 
     this.exitPos = result.exitPos;
     this.items = result.items;
+
+    // Reset všech herních timerů při novém levelu
+    this._footstepTimer = 0;
+    this._alienSoundTimer = 0;
+    this._attackTimer = CONFIG.ALIEN_ATTACK_COOLDOWN; // grace period na začátku
+    this._alienReroute = 0;
+    this._wanderTimer = 0;
 
     // Visible set
     this.visible = new Set();
@@ -1082,15 +1229,16 @@ class Game {
     }
   }
 
-  // Kužel výhledu aliena — zkontroluje úhel a zda není zeď v cestě
+  // Kužel výhledu aliena — vlastní FOV nezávislý na hráčově baterce
   _alienCanSeePlayer(alienTile, distToPlayer) {
     if (distToPlayer > CONFIG.ALIEN_VISION_DIST) return false;
 
     const a = this.alien;
     const p = this.player;
 
-    // Směr pohybu aliena (facing)
+    // Směr pohybu aliena (vx/vy uloženo při pohybu)
     const facingAngle = Math.atan2(a.vy || 0, a.vx || 1);
+    // Úhel od aliena k hráči
     const toPlayerAngle = Math.atan2(p.y - a.y, p.x - a.x);
 
     let angleDiff = Math.abs(facingAngle - toPlayerAngle);
@@ -1099,10 +1247,30 @@ class Game {
     const coneHalf = (CONFIG.ALIEN_VISION_CONE * Math.PI) / 180;
     if (angleDiff > coneHalf) return false;
 
-    // Musí být v osvětlené oblasti (hráčovo FOV) nebo velmi blízko
-    if (distToPlayer > 2 && !this.visible.has(`${alienTile.x},${alienTile.y}`)) return false;
+    // Přímá viditelnost — žádná zeď mezi alienem a hráčem (ray test)
+    const playerTile = Utils.worldToTile(p.x, p.y);
+    if (!this._hasLineOfSight(alienTile.x, alienTile.y, playerTile.x, playerTile.y)) return false;
 
     return true;
+  }
+
+  // Bresenham line-of-sight test — žádná zeď v cestě
+  _hasLineOfSight(x0, y0, x1, y1) {
+    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    let x = x0, y = y0;
+    while (true) {
+      if (x === x1 && y === y1) return true;
+      // Zeď blokuje výhled (ale ne starting tile)
+      if (x !== x0 || y !== y0) {
+        const t = this.tiles[y]?.[x];
+        if (t === TILE.WALL || t === TILE.EMPTY || t === undefined) return false;
+      }
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 < dx)  { err += dx; y += sy; }
+    }
   }
 
   _moveAlongPath(dt) {
@@ -1209,12 +1377,12 @@ class Game {
         this.tiles[ty][tx] = TILE.DOOR_OPEN;
         this.sound.door();
         GameLog.add('// DOOR OVERRIDE — CAUTION: NOISE', 'important');
-        // Noise event
+        // Noise event — porovnání v tile souřadnicích
         const atile = Utils.worldToTile(this.alien.x, this.alien.y);
-        const d = Utils.dist({x:tx,y:ty},{x:atile.x,y:atile.y});
-        if (d <= 8) {
+        const d = Math.hypot(tx - atile.x, ty - atile.y);
+        if (d <= 10) {
           this.alien.state = 'investigate';
-          this.alien.lastKnownPlayer = { x:tx, y:ty };
+          this.alien.lastKnownPlayer = { x: tx, y: ty };
         }
         return;
       }
@@ -1291,168 +1459,264 @@ class Game {
 
     const p = this.player;
     const pt = Utils.worldToTile(p.x, p.y);
+    const T = CONFIG.TILE;
+    const TW = CONFIG.ISO_TW;
+    const TH = CONFIG.ISO_TH;
+    const WH = CONFIG.ISO_WALL_H;
 
-    // Camera offset: center on player
-    const camX = Math.round(p.x - CONFIG.CANVAS_W / 2);
-    const camY = Math.round(p.y - CONFIG.CANVAS_H / 2);
+    // Player iso screen position
+    const playerIso = IsoHelper.toScreen(p.x / T, p.y / T);
+    // Camera: center iso origin so player is in center
+    const originX = CONFIG.CANVAS_W / 2 - playerIso.x;
+    const originY = CONFIG.CANVAS_H / 2 - playerIso.y + WH;
 
     c.save();
-    c.translate(-camX, -camY);
+    c.translate(originX, originY);
 
-    // Draw tiles
-    const startTx = Math.max(0, Math.floor(camX / CONFIG.TILE));
-    const endTx = Math.min(CONFIG.COLS - 1, Math.ceil((camX + CONFIG.CANVAS_W) / CONFIG.TILE));
-    const startTy = Math.max(0, Math.floor(camY / CONFIG.TILE));
-    const endTy = Math.min(CONFIG.ROWS - 1, Math.ceil((camY + CONFIG.CANVAS_H) / CONFIG.TILE));
-
-    for (let ty = startTy; ty <= endTy; ty++) {
-      for (let tx = startTx; tx <= endTx; tx++) {
-        const tile = this.tiles[ty][tx];
+    // Painter's algorithm: render in order of tx+ty (back to front)
+    // Collect visible tile range in iso space - render all tiles sorted
+    const tileList = [];
+    for (let ty = 0; ty < CONFIG.ROWS; ty++) {
+      for (let tx = 0; tx < CONFIG.COLS; tx++) {
         const isVisible = this.visible.has(`${tx},${ty}`);
         const isSeen = this.seen[ty][tx];
-        const wx = tx * CONFIG.TILE;
-        const wy = ty * CONFIG.TILE;
-
-        if (tile === TILE.EMPTY || tile === TILE.WALL) {
-          if (isVisible) {
-            c.fillStyle = CONFIG.COLOR_WALL_LIT;
-            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
-            c.fillStyle = 'rgba(0,255,100,0.05)';
-            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
-          } else if (isSeen) {
-            c.fillStyle = CONFIG.COLOR_WALL;
-            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
-          }
-          continue;
-        }
-
         if (!isVisible && !isSeen) continue;
+        // Cull: skip tiles far off-screen in iso space
+        const iso = IsoHelper.toScreen(tx, ty);
+        const sx = iso.x + originX;
+        const sy = iso.y + originY;
+        if (sx < -TW*2 - WH || sx > CONFIG.CANVAS_W + TW*2 ||
+            sy < -TH*2 - WH*4 || sy > CONFIG.CANVAS_H + TH*2 + WH) continue;
+        tileList.push({tx, ty, iso, isVisible, isSeen, depth: tx + ty});
+      }
+    }
+    // Sort back to front
+    tileList.sort((a, b) => a.depth - b.depth);
 
-        // Floor/vent color
-        let color;
+    const pulse = (Math.sin(Date.now() / 400) + 1) / 2;
+
+    for (const {tx, ty, iso, isVisible, isSeen} of tileList) {
+      const tile = this.tiles[ty][tx];
+      const sx = iso.x, sy = iso.y;
+
+      if (tile === TILE.EMPTY || tile === TILE.WALL) {
         if (isVisible) {
-          switch(tile) {
-            case TILE.VENT: color = CONFIG.COLOR_VENT_LIT; break;
-            case TILE.DOOR_CLOSED: color = CONFIG.COLOR_DOOR_CLOSED; break;
-            case TILE.DOOR_OPEN: color = CONFIG.COLOR_DOOR_OPEN; break;
-            case TILE.EXIT: color = '#003311'; break;
-            default: color = CONFIG.COLOR_FLOOR_LIT;
-          }
-        } else {
-          color = CONFIG.COLOR_FLOOR_SEEN;
+          IsoHelper.drawWall(c, sx, sy,
+            '#1a3a20', // top
+            '#0a1a0e', // south
+            '#0d2212'  // east
+          );
+        } else if (isSeen) {
+          IsoHelper.drawWall(c, sx, sy, '#0e1f12', '#060f08', '#080f0a');
         }
+        continue;
+      }
 
-        c.fillStyle = color;
-        c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
-
-        if (isVisible) {
-          // Tile details
-          if (tile === TILE.VENT) {
-            c.strokeStyle = 'rgba(0,255,100,0.2)';
-            c.lineWidth = 0.5;
-            c.strokeRect(wx+1, wy+1, CONFIG.TILE-2, CONFIG.TILE-2);
-            c.beginPath();
-            c.moveTo(wx+2, wy+2); c.lineTo(wx+CONFIG.TILE-2, wy+CONFIG.TILE-2);
-            c.moveTo(wx+CONFIG.TILE-2, wy+2); c.lineTo(wx+2, wy+CONFIG.TILE-2);
-            c.stroke();
-          }
-          if (tile === TILE.DOOR_CLOSED) {
-            c.fillStyle = '#44aa55';
-            c.fillRect(wx+2, wy+1, CONFIG.TILE-4, CONFIG.TILE-2);
-            c.fillStyle = '#ffaa00';
-            c.fillRect(wx + CONFIG.TILE/2 - 1, wy + CONFIG.TILE/2 - 1, 2, 2);
-          }
-          if (tile === TILE.DOOR_OPEN) {
-            c.strokeStyle = '#44aa55';
-            c.lineWidth = 1;
-            c.strokeRect(wx+1, wy+1, CONFIG.TILE-2, CONFIG.TILE-2);
-          }
-          if (tile === TILE.EXIT) {
-            // Pulsing exit marker
-            const pulse = (Math.sin(Date.now() / 400) + 1) / 2;
-            c.fillStyle = `rgba(0,255,120,${0.3 + pulse * 0.4})`;
-            c.fillRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
-            c.fillStyle = CONFIG.COLOR_EXIT;
-            c.font = `${CONFIG.TILE-2}px monospace`;
-            c.textAlign = 'center';
-            c.textBaseline = 'middle';
-            c.fillText('▲', wx + CONFIG.TILE/2, wy + CONFIG.TILE/2);
-          }
-          if (tile === TILE.ITEM_CARD) {
-            c.fillStyle = CONFIG.COLOR_ITEM;
-            c.font = `${CONFIG.TILE-3}px monospace`;
-            c.textAlign = 'center';
-            c.textBaseline = 'middle';
-            c.fillText('▪', wx + CONFIG.TILE/2, wy + CONFIG.TILE/2);
-          }
-          if (tile === TILE.ITEM_MEDKIT) {
-            c.fillStyle = '#ff4444';
-            c.font = `${CONFIG.TILE-3}px monospace`;
-            c.textAlign = 'center';
-            c.textBaseline = 'middle';
-            c.fillText('+', wx + CONFIG.TILE/2, wy + CONFIG.TILE/2);
-          }
+      // Floor
+      let floorColor, floorStroke;
+      if (isVisible) {
+        switch(tile) {
+          case TILE.VENT:
+            floorColor = '#0d2a1a'; floorStroke = 'rgba(0,255,100,0.2)'; break;
+          case TILE.DOOR_CLOSED:
+            floorColor = '#1a2a10'; floorStroke = 'rgba(80,200,80,0.3)'; break;
+          case TILE.DOOR_OPEN:
+            floorColor = '#0d1a08'; floorStroke = 'rgba(0,180,80,0.2)'; break;
+          case TILE.EXIT:
+            floorColor = `rgba(0,${40 + Math.round(pulse*30)},20,1)`; floorStroke = '#00ff77'; break;
+          default:
+            floorColor = '#0d1f10'; floorStroke = 'rgba(0,80,30,0.3)';
         }
+      } else {
+        floorColor = '#080e08'; floorStroke = null;
+      }
+      IsoHelper.drawFloor(c, sx, sy, floorColor, floorStroke);
 
-        // Grid lines (subtle)
-        if (isVisible) {
-          c.strokeStyle = 'rgba(0,80,30,0.3)';
-          c.lineWidth = 0.5;
-          c.strokeRect(wx, wy, CONFIG.TILE, CONFIG.TILE);
+      if (!isVisible) continue;
+
+      // Tile details on top of floor
+      if (tile === TILE.VENT) {
+        // Vent grill lines
+        c.strokeStyle = 'rgba(0,255,100,0.25)';
+        c.lineWidth = 0.5;
+        c.beginPath();
+        c.moveTo(sx - TW*0.5, sy - TH*0.5); c.lineTo(sx + TW*0.5, sy + TH*0.5);
+        c.moveTo(sx - TW*0.5, sy + TH*0.5); c.lineTo(sx + TW*0.5, sy - TH*0.5);
+        c.stroke();
+      }
+      if (tile === TILE.DOOR_CLOSED) {
+        IsoHelper.drawBox(c, sx, sy, 10,
+          '#225a28', '#113014', '#1a4820');
+        // Keypad dot
+        c.fillStyle = '#ffaa00';
+        c.beginPath();
+        c.arc(sx + TW*0.15, sy - TH*0.15, 2, 0, Math.PI*2);
+        c.fill();
+      }
+      if (tile === TILE.DOOR_OPEN) {
+        // Just open frame - show as thin walls on sides
+        c.strokeStyle = '#44aa55';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(sx - TW, sy); c.lineTo(sx - TW, sy + TH*0.5);
+        c.moveTo(sx + TW, sy); c.lineTo(sx + TW, sy + TH*0.5);
+        c.stroke();
+      }
+      if (tile === TILE.EXIT) {
+        // Glowing exit hatch
+        c.fillStyle = `rgba(0,255,120,${0.3 + pulse*0.4})`;
+        c.beginPath();
+        c.moveTo(sx, sy - TH*0.7);
+        c.lineTo(sx + TW*0.7, sy);
+        c.lineTo(sx, sy + TH*0.7);
+        c.lineTo(sx - TW*0.7, sy);
+        c.closePath();
+        c.fill();
+        c.fillStyle = '#00ff88';
+        c.font = '10px monospace';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('▲', sx, sy);
+      }
+      if (tile === TILE.ITEM_CARD) {
+        IsoHelper.drawBox(c, sx, sy, 5, '#334422', '#1a2210', '#263318');
+        c.fillStyle = '#aaffaa';
+        c.font = '7px monospace';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('ID', sx, sy - 3);
+      }
+      if (tile === TILE.ITEM_MEDKIT) {
+        IsoHelper.drawBox(c, sx, sy, 7, '#441111', '#220808', '#330e0e');
+        c.fillStyle = '#ff6666';
+        c.font = '8px monospace';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('+', sx, sy - 4);
+      }
+
+      // Draw alien if on this tile
+      const at = Utils.worldToTile(this.alien.x, this.alien.y);
+      if (at.x === tx && at.y === ty && this.visible.has(`${tx},${ty}`)) {
+        const aPulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
+        // Alien body - tall sinister shape
+        const ah = 22; // alien height
+        // Body shadow
+        c.fillStyle = 'rgba(0,0,0,0.4)';
+        c.beginPath();
+        c.ellipse(sx, sy + TH*0.5, TW*0.5, TH*0.3, 0, 0, Math.PI*2);
+        c.fill();
+        // Body silhouette
+        c.fillStyle = `rgba(60,${Math.round(180*aPulse)},90,0.95)`;
+        // Legs
+        c.beginPath();
+        c.moveTo(sx - 5, sy + TH*0.2);
+        c.lineTo(sx - 3, sy - ah * 0.3);
+        c.lineTo(sx + 3, sy - ah * 0.3);
+        c.lineTo(sx + 5, sy + TH*0.2);
+        c.closePath();
+        c.fill();
+        // Torso
+        c.beginPath();
+        c.moveTo(sx - 6, sy - ah * 0.3);
+        c.lineTo(sx + 6, sy - ah * 0.3);
+        c.lineTo(sx + 4, sy - ah * 0.7);
+        c.lineTo(sx - 4, sy - ah * 0.7);
+        c.closePath();
+        c.fill();
+        // Head
+        c.fillStyle = `rgba(40,${Math.round(140*aPulse)},60,0.95)`;
+        c.beginPath();
+        c.ellipse(sx, sy - ah * 0.85, 4, 6, 0, 0, Math.PI*2);
+        c.fill();
+        // Inner mouth glow
+        c.fillStyle = `rgba(0,255,80,${aPulse*0.6})`;
+        c.beginPath();
+        c.arc(sx, sy - ah * 0.7, 2, 0, Math.PI);
+        c.fill();
+        // Glow aura
+        c.shadowColor = '#00ff55';
+        c.shadowBlur = 12;
+        c.strokeStyle = `rgba(0,255,80,${aPulse*0.4})`;
+        c.lineWidth = 1;
+        c.beginPath();
+        c.ellipse(sx, sy - ah * 0.6, 8, ah*0.6, 0, 0, Math.PI*2);
+        c.stroke();
+        c.shadowBlur = 0;
+      }
+
+      // Draw player if on this tile
+      if (pt.x === tx && pt.y === ty) {
+        const stress = p.stress;
+        const shakeX = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
+        const shakeY = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
+        const ph = 18; // player height
+        const px2 = sx + shakeX, py2 = sy + shakeY;
+        // Shadow
+        c.fillStyle = 'rgba(0,0,0,0.35)';
+        c.beginPath();
+        c.ellipse(px2, py2 + TH*0.4, TW*0.4, TH*0.25, 0, 0, Math.PI*2);
+        c.fill();
+        // Legs
+        c.fillStyle = '#00aa66';
+        c.beginPath();
+        c.moveTo(px2 - 4, py2 + TH*0.1);
+        c.lineTo(px2 - 2, py2 - ph*0.25);
+        c.lineTo(px2 + 2, py2 - ph*0.25);
+        c.lineTo(px2 + 4, py2 + TH*0.1);
+        c.closePath();
+        c.fill();
+        // Suit body
+        c.fillStyle = '#00cc88';
+        c.beginPath();
+        c.moveTo(px2 - 5, py2 - ph*0.25);
+        c.lineTo(px2 + 5, py2 - ph*0.25);
+        c.lineTo(px2 + 4, py2 - ph*0.65);
+        c.lineTo(px2 - 4, py2 - ph*0.65);
+        c.closePath();
+        c.fill();
+        // Helmet
+        c.fillStyle = '#00ff9d';
+        c.beginPath();
+        c.arc(px2, py2 - ph*0.82, 5, 0, Math.PI*2);
+        c.fill();
+        // Visor
+        c.fillStyle = 'rgba(0,200,255,0.7)';
+        c.beginPath();
+        c.ellipse(px2, py2 - ph*0.82, 3, 2.5, 0, 0, Math.PI*2);
+        c.fill();
+        // Flashlight beam
+        if (p.lightOn) {
+          c.strokeStyle = 'rgba(255,255,200,0.06)';
+          c.lineWidth = TW * 1.5;
+          c.lineCap = 'round';
+          c.shadowColor = 'rgba(255,255,200,0.1)';
+          c.shadowBlur = 20;
+          c.beginPath();
+          c.moveTo(px2, py2 - ph*0.65);
+          // Project facing direction into iso space
+          const beamLen = CONFIG.FOV_RADIUS * (TW + TH) * 0.5;
+          c.lineTo(
+            px2 + p.facing.dx * beamLen,
+            py2 + p.facing.dy * beamLen * 0.5 - ph*0.3
+          );
+          c.stroke();
+          c.shadowBlur = 0;
         }
       }
     }
 
-    // Fog of war darkness overlay (vignette around FOV edge)
+    // Fog vignette overlay
     if (p.lightOn) {
-      const px = p.x, py = p.y;
-      const fogRadius = CONFIG.FOV_RADIUS * CONFIG.TILE;
-      const grad = c.createRadialGradient(px, py, fogRadius*0.5, px, py, fogRadius*1.1);
+      const fogRadius = CONFIG.FOV_RADIUS * (TW + TH) * 0.8;
+      const grad = c.createRadialGradient(
+        CONFIG.CANVAS_W/2, CONFIG.CANVAS_H/2, fogRadius*0.4,
+        CONFIG.CANVAS_W/2, CONFIG.CANVAS_H/2, fogRadius*1.1
+      );
       grad.addColorStop(0, 'rgba(0,0,0,0)');
       grad.addColorStop(1, 'rgba(0,0,0,0.95)');
       c.fillStyle = grad;
-      c.fillRect(camX, camY, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
-    }
-
-    // Draw alien (only if visible)
-    const at = Utils.worldToTile(this.alien.x, this.alien.y);
-    if (this.visible.has(`${at.x},${at.y}`)) {
-      const ax = this.alien.x, ay = this.alien.y;
-      const pulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
-      c.fillStyle = `rgba(80,255,120,${pulse})`;
-      c.font = `${CONFIG.TILE}px monospace`;
-      c.textAlign = 'center';
-      c.textBaseline = 'middle';
-      c.fillText('X', ax, ay);
-      // Glow
-      c.shadowColor = '#00ff55';
-      c.shadowBlur = 8;
-      c.fillText('X', ax, ay);
-      c.shadowBlur = 0;
-    }
-
-    // Draw player
-    const stress = this.player.stress;
-    const shakeX = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
-    const shakeY = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
-    c.fillStyle = CONFIG.COLOR_PLAYER;
-    c.font = `${CONFIG.TILE}px monospace`;
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.fillText('@', p.x + shakeX, p.y + shakeY);
-
-    // Light beam indicator
-    if (p.lightOn) {
-      c.strokeStyle = 'rgba(255,255,200,0.04)';
-      c.lineWidth = CONFIG.FOV_RADIUS * CONFIG.TILE * 0.4;
-      c.lineCap = 'round';
-      c.beginPath();
-      c.moveTo(p.x, p.y);
-      c.lineTo(
-        p.x + p.facing.dx * CONFIG.FOV_RADIUS * CONFIG.TILE * 0.5,
-        p.y + p.facing.dy * CONFIG.FOV_RADIUS * CONFIG.TILE * 0.5
-      );
-      c.stroke();
+      c.fillRect(-originX, -originY, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
     }
 
     c.restore();
@@ -1587,9 +1851,10 @@ function startGame() {
     game.init();
   } else {
     game.floor = 1;
+    game.elapsed = 0;
+    game.lastTime = 0;  // reset aby první dt nebyl obří
     game._generateLevel();
     game.state = GameState.PLAYING;
-    game.elapsed = 0;
     requestAnimationFrame(t => game._loop(t));
   }
 }
