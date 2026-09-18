@@ -675,7 +675,7 @@ const Input = {
 };
 
 // ============================================================
-// MAP GENERATOR — BSP dungeon
+// MAP GENERATOR — Room & Corridor with logical doors
 // ============================================================
 class MapGenerator {
   constructor(cols, rows) {
@@ -683,40 +683,28 @@ class MapGenerator {
     this.rows = rows;
     this.tiles = [];
     this.rooms = [];
-    this.ventPaths = [];
+    this.corridors = []; // list of {x,y} corridor tiles
   }
 
   generate() {
-    // Init all walls
-    this.tiles = Array.from({ length: this.rows }, () =>
-      Array(this.cols).fill(TILE.WALL)
-    );
+    this.tiles = Array.from({ length: this.rows }, () => Array(this.cols).fill(TILE.WALL));
     this.rooms = [];
+    this.corridors = [];
 
-    // BSP split
-    const root = { x: 1, y: 1, w: this.cols - 2, h: this.rows - 2 };
-    const leaves = this._splitBSP(root, 0);
+    // 1. Place rooms on a loose grid so they don't overlap
+    this._placeRooms();
 
-    // Carve rooms in leaves
-    leaves.forEach(leaf => {
-      const room = this._carveRoom(leaf);
-      if (room) this.rooms.push(room);
-    });
+    // 2. Connect every room to its nearest unconnected neighbour (MST-like)
+    this._connectAllRooms();
 
-    // Connect rooms with corridors
-    const sorted = [...this.rooms].sort((a, b) => a.cx - b.cx);
-    for (let i = 1; i < sorted.length; i++) {
-      this._connectRooms(sorted[i-1], sorted[i]);
-    }
+    // 3. Place doors only at room entrances (where corridor meets room edge)
+    this._placeDoors();
 
-    // Add vents
+    // 4. Add a few vents between distant rooms
     this._addVents();
 
-    // Place doors on some corridor intersections
-    this._addDoors();
-
-    // Place items & exit
-    const placements = this._placeFeaturesAndItems();
+    // 5. Place player, alien, exit, items
+    const placements = this._placeFeatures();
 
     return {
       tiles: this.tiles,
@@ -728,112 +716,217 @@ class MapGenerator {
     };
   }
 
-  _splitBSP(rect, depth) {
-    if (depth > 4) return [rect];
-    if (rect.w < 12 && rect.h < 12) return [rect];
-    const splitH = rect.w > rect.h ? true : rect.h > rect.w ? false : Math.random() > 0.5;
-    let leaves = [];
-    if (splitH && rect.w >= 12) {
-      const split = Utils.rng(6, rect.w - 6);
-      leaves = [
-        ...this._splitBSP({ x: rect.x, y: rect.y, w: split, h: rect.h }, depth+1),
-        ...this._splitBSP({ x: rect.x+split, y: rect.y, w: rect.w-split, h: rect.h }, depth+1),
-      ];
-    } else if (!splitH && rect.h >= 12) {
-      const split = Utils.rng(5, rect.h - 5);
-      leaves = [
-        ...this._splitBSP({ x: rect.x, y: rect.y, w: rect.w, h: split }, depth+1),
-        ...this._splitBSP({ x: rect.x, y: rect.y+split, w: rect.w, h: rect.h-split }, depth+1),
-      ];
-    } else {
-      return [rect];
+  // ---- Room placement on grid ----
+  _placeRooms() {
+    // Divide map into cells, place one room per cell
+    const cellW = 18, cellH = 13;
+    const gridCols = Math.floor((this.cols - 2) / cellW);
+    const gridRows = Math.floor((this.rows - 2) / cellH);
+
+    for (let gy = 0; gy < gridRows; gy++) {
+      for (let gx = 0; gx < gridCols; gx++) {
+        // Skip ~20% of cells for variety
+        if (Math.random() < 0.2) continue;
+
+        const cellX = 2 + gx * cellW;
+        const cellY = 2 + gy * cellH;
+
+        // Room size: 5–12 wide, 4–8 tall
+        const rw = Utils.rng(5, Math.min(12, cellW - 4));
+        const rh = Utils.rng(4, Math.min(8, cellH - 3));
+
+        // Position inside cell with small random offset
+        const rx = cellX + Utils.rng(1, cellW - rw - 2);
+        const ry = cellY + Utils.rng(1, cellH - rh - 2);
+
+        // Carve room
+        for (let ty = ry; ty < ry + rh; ty++)
+          for (let tx = rx; tx < rx + rw; tx++)
+            this.tiles[ty][tx] = TILE.FLOOR;
+
+        this.rooms.push({
+          x: rx, y: ry, w: rw, h: rh,
+          cx: Math.floor(rx + rw / 2),
+          cy: Math.floor(ry + rh / 2),
+          connected: false,
+        });
+      }
     }
-    return leaves;
   }
 
-  _carveRoom(leaf) {
-    const minW = 4, minH = 3;
-    const maxW = Math.min(leaf.w - 2, 12);
-    const maxH = Math.min(leaf.h - 2, 9);
-    if (maxW < minW || maxH < minH) return null;
-    const w = Utils.rng(minW, maxW);
-    const h = Utils.rng(minH, maxH);
-    const x = leaf.x + Utils.rng(1, leaf.w - w - 1);
-    const y = leaf.y + Utils.rng(1, leaf.h - h - 1);
-    for (let ty = y; ty < y + h; ty++)
-      for (let tx = x; tx < x + w; tx++)
-        this.tiles[ty][tx] = TILE.FLOOR;
-    return { x, y, w, h, cx: Math.floor(x + w/2), cy: Math.floor(y + h/2) };
+  // ---- Connect rooms with corridors (Prim's MST) ----
+  _connectAllRooms() {
+    if (this.rooms.length === 0) return;
+    const connected = new Set([0]);
+    this.rooms[0].connected = true;
+
+    while (connected.size < this.rooms.length) {
+      let bestDist = Infinity, bestA = -1, bestB = -1;
+      for (const ai of connected) {
+        for (let bi = 0; bi < this.rooms.length; bi++) {
+          if (connected.has(bi)) continue;
+          const d = Math.hypot(this.rooms[ai].cx - this.rooms[bi].cx,
+                               this.rooms[ai].cy - this.rooms[bi].cy);
+          if (d < bestDist) { bestDist = d; bestA = ai; bestB = bi; }
+        }
+      }
+      if (bestA === -1) break;
+      this._carveCorridor(this.rooms[bestA], this.rooms[bestB]);
+      connected.add(bestB);
+      this.rooms[bestB].connected = true;
+    }
   }
 
-  _connectRooms(a, b) {
-    let cx = a.cx, cy = a.cy;
+  // ---- Carve an L-shaped corridor between two rooms ----
+  _carveCorridor(a, b) {
+    // Corridors are 1 wide (clean look); bend at midpoint
+    let x = a.cx, y = a.cy;
     const tx = b.cx, ty = b.cy;
-    // L-shaped corridor
-    if (Math.random() > 0.5) {
-      while (cx !== tx) { this.tiles[cy][cx] = TILE.FLOOR; cx += cx < tx ? 1 : -1; }
-      while (cy !== ty) { this.tiles[cy][cx] = TILE.FLOOR; cy += cy < ty ? 1 : -1; }
+
+    // Record bend point for door placement
+    const bendX = Math.random() > 0.5 ? tx : x;
+    const bendY = Math.random() > 0.5 ? y : ty;
+
+    const carve = (x, y) => {
+      if (this.tiles[y][x] === TILE.WALL) {
+        this.tiles[y][x] = TILE.FLOOR;
+        this.corridors.push({x, y});
+      }
+    };
+
+    // Horizontal then vertical
+    const hFirst = Math.random() > 0.5;
+    if (hFirst) {
+      while (x !== tx) { carve(x, y); x += x < tx ? 1 : -1; }
+      while (y !== ty) { carve(x, y); y += y < ty ? 1 : -1; }
     } else {
-      while (cy !== ty) { this.tiles[cy][cx] = TILE.FLOOR; cy += cy < ty ? 1 : -1; }
-      while (cx !== tx) { this.tiles[cy][cx] = TILE.FLOOR; cx += cx < tx ? 1 : -1; }
+      while (y !== ty) { carve(x, y); y += y < ty ? 1 : -1; }
+      while (x !== tx) { carve(x, y); x += x < tx ? 1 : -1; }
     }
+    carve(tx, ty);
   }
 
-  _addVents() {
-    // Add 3-5 vent shafts connecting distant rooms
-    const count = Utils.rng(3, 5);
-    for (let i = 0; i < count; i++) {
-      if (this.rooms.length < 2) break;
-      const rA = this.rooms[Utils.rng(0, Math.floor(this.rooms.length/2) - 1)];
-      const rB = this.rooms[Utils.rng(Math.floor(this.rooms.length/2), this.rooms.length-1)];
-      // Draw vent path
-      let cx = rA.cx, cy = rA.cy;
-      const path = [];
-      while (cx !== rB.cx) {
-        if (this.tiles[cy][cx] !== TILE.FLOOR) { this.tiles[cy][cx] = TILE.VENT; path.push({x:cx,y:cy}); }
-        cx += cx < rB.cx ? 1 : -1;
-      }
-      while (cy !== rB.cy) {
-        if (this.tiles[cy][cx] !== TILE.FLOOR) { this.tiles[cy][cx] = TILE.VENT; path.push({x:cx,y:cy}); }
-        cy += cy < rB.cy ? 1 : -1;
-      }
-      this.ventPaths.push(path);
+  // ---- Place doors at room–corridor transitions ----
+  _placeDoors() {
+    // A door goes where a 1-wide corridor tile is directly adjacent to a room edge
+    // We find tiles that are: FLOOR, flanked by 2 walls on opposite sides,
+    // AND exactly on the border of a room (i.e. one neighbour is inside a room)
+    const roomSet = new Set();
+    for (const r of this.rooms) {
+      for (let ty = r.y; ty < r.y + r.h; ty++)
+        for (let tx = r.x; tx < r.x + r.w; tx++)
+          roomSet.add(`${tx},${ty}`);
     }
-  }
 
-  _addDoors() {
-    // Scan for corridor tiles adjacent to rooms and add doors
-    for (let ty = 1; ty < this.rows-1; ty++) {
-      for (let tx = 1; tx < this.cols-1; tx++) {
+    // Track which corridors already have a door, to avoid clusters
+    const dooredCorridors = new Set();
+
+    for (let ty = 1; ty < this.rows - 1; ty++) {
+      for (let tx = 1; tx < this.cols - 1; tx++) {
         if (this.tiles[ty][tx] !== TILE.FLOOR) continue;
-        // Check if it's a narrow corridor (exactly 2 walls on opposite sides)
+        if (roomSet.has(`${tx},${ty}`)) continue; // inside a room
+
         const wallN = this.tiles[ty-1][tx] === TILE.WALL;
         const wallS = this.tiles[ty+1][tx] === TILE.WALL;
         const wallE = this.tiles[ty][tx+1] === TILE.WALL;
         const wallW = this.tiles[ty][tx-1] === TILE.WALL;
-        if ((wallN && wallS && !wallE && !wallW) || (!wallN && !wallS && wallE && wallW)) {
-          if (Math.random() < 0.25) {
-            this.tiles[ty][tx] = TILE.DOOR_CLOSED;
-          }
+
+        const isHorizCorridor = wallN && wallS && !wallE && !wallW;
+        const isVertCorridor  = wallE && wallW && !wallN && !wallS;
+
+        if (!isHorizCorridor && !isVertCorridor) continue;
+
+        // Check at least one neighbour is a room tile
+        const neighbors = [
+          `${tx},${ty-1}`, `${tx},${ty+1}`,
+          `${tx-1},${ty}`, `${tx+1},${ty}`
+        ];
+        const touchesRoom = neighbors.some(k => roomSet.has(k));
+        if (!touchesRoom) continue;
+
+        // No door within 3 tiles of another door in same corridor
+        const tooClose = [-3,-2,-1,1,2,3].some(d => {
+          const nx = isHorizCorridor ? tx+d : tx;
+          const ny = isVertCorridor  ? ty+d : ty;
+          return dooredCorridors.has(`${nx},${ny}`);
+        });
+        if (tooClose) continue;
+
+        // 60% chance of door at valid transition point
+        if (Math.random() < 0.6) {
+          this.tiles[ty][tx] = TILE.DOOR_CLOSED;
+          dooredCorridors.add(`${tx},${ty}`);
         }
       }
     }
   }
 
-  _placeFeaturesAndItems() {
-    const shuffled = [...this.rooms].sort(() => Math.random() - 0.5);
-    const playerRoom = shuffled[0];
-    const alienRoom = shuffled[shuffled.length - 1];
-    const exitRoom = shuffled[Math.floor(shuffled.length / 2)];
+  // ---- Add vent shafts ----
+  _addVents() {
+    const count = Utils.rng(2, 4);
+    for (let i = 0; i < count && this.rooms.length >= 2; i++) {
+      const rA = this.rooms[Utils.rng(0, Math.floor(this.rooms.length/2) - 1)];
+      const rB = this.rooms[Utils.rng(Math.floor(this.rooms.length/2), this.rooms.length - 1)];
+      let cx = rA.cx, cy = rA.cy;
+      const goH = Math.random() > 0.5;
+      if (goH) {
+        while (cx !== rB.cx) {
+          if (this.tiles[cy][cx] === TILE.WALL) this.tiles[cy][cx] = TILE.VENT;
+          cx += cx < rB.cx ? 1 : -1;
+        }
+      }
+      while (cy !== rB.cy) {
+        if (this.tiles[cy][cx] === TILE.WALL) this.tiles[cy][cx] = TILE.VENT;
+        cy += cy < rB.cy ? 1 : -1;
+      }
+    }
+  }
+
+  // ---- Place player, alien, exit, items ----
+  _placeFeatures() {
+    if (this.rooms.length === 0) {
+      return { playerStart: Utils.tileToWorld(5,5), alienStart: Utils.tileToWorld(70,45), exitPos:{tx:40,ty:27}, items:[] };
+    }
+
+    // Sort rooms left-to-right for predictable start/end
+    const sorted = [...this.rooms].sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy));
+    const playerRoom = sorted[0];
+    const alienRoom  = sorted[sorted.length - 1];
+
+    // Exit = room farthest from player that isn't the alien room, preferably on map edge
+    const exitRoom = sorted.slice(1, -1).reduce((best, r) => {
+      const edgeness = Math.min(r.x, r.y, this.cols - r.x - r.w, this.rows - r.y - r.h);
+      const dist = Math.hypot(r.cx - playerRoom.cx, r.cy - playerRoom.cy);
+      const score = dist - edgeness * 0.5;
+      return score > (best.score || 0) ? {...r, score} : best;
+    }, sorted[Math.floor(sorted.length / 2)]);
+
+    // Place EXIT as a special wall tile on the room's edge wall
+    // Find a wall tile adjacent to exitRoom
+    let exitTx = exitRoom.x - 1, exitTy = exitRoom.cy; // left wall
+    if (exitRoom.x <= 3) { exitTx = exitRoom.x + exitRoom.w; exitTy = exitRoom.cy; } // right wall
+    // Make sure it's actually a wall
+    if (this.tiles[exitTy] && this.tiles[exitTy][exitTx] !== undefined) {
+      this.tiles[exitTy][exitTx] = TILE.EXIT;
+      // Carve one tile path to it from room center
+      const dirX = exitTx < exitRoom.cx ? -1 : 1;
+      for (let x = exitRoom.cx; x !== exitTx; x += dirX)
+        if (this.tiles[exitTy][x] === TILE.WALL) this.tiles[exitTy][x] = TILE.FLOOR;
+    } else {
+      // Fallback: center of exit room
+      exitTx = exitRoom.cx; exitTy = exitRoom.cy;
+      this.tiles[exitTy][exitTx] = TILE.EXIT;
+    }
 
     const playerStart = Utils.tileToWorld(playerRoom.cx, playerRoom.cy);
-    const alienStart = Utils.tileToWorld(alienRoom.cx, alienRoom.cy);
-    const exitPos = { tx: exitRoom.cx, ty: exitRoom.cy };
-    this.tiles[exitRoom.cy][exitRoom.cx] = TILE.EXIT;
+    const alienStart  = Utils.tileToWorld(alienRoom.cx,  alienRoom.cy);
+    const exitPos     = { tx: exitTx, ty: exitTy };
 
-    // Place items in other rooms
+    // Items: one per 3rd room, skip player/alien/exit rooms
     const items = [];
-    shuffled.slice(1, -1).forEach((room, i) => {
+    const usedRooms = new Set([playerRoom, alienRoom, exitRoom]);
+    sorted.forEach((room, i) => {
+      if (usedRooms.has(room)) return;
       if (i % 3 === 0) {
         const type = Math.random() > 0.5 ? TILE.ITEM_CARD : TILE.ITEM_MEDKIT;
         this.tiles[room.cy][room.cx] = type;
