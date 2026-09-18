@@ -742,7 +742,7 @@ class MapGenerator {
       tiles: this.tiles,
       rooms: this.rooms,
       playerStart: placements.playerStart,
-      alienStart: placements.alienStart,
+      alienStarts: placements.alienStarts,
       exitPos: placements.exitPos,
       items: placements.items,
     };
@@ -917,7 +917,7 @@ class MapGenerator {
   // ---- Place player, alien, exit, items ----
   _placeFeatures() {
     if (this.rooms.length === 0) {
-      return { playerStart: Utils.tileToWorld(5,5), alienStart: Utils.tileToWorld(70,45), exitPos:{tx:40,ty:27}, items:[] };
+      return { playerStart: Utils.tileToWorld(5,5), alienStarts: [Utils.tileToWorld(70,45)], exitPos:{tx:40,ty:27}, items:[] };
     }
 
     // Sort rooms left-to-right for predictable start/end
@@ -1354,7 +1354,7 @@ class Game {
   // ---- UPDATE ----
   _update(dt) {
     this._updatePlayer(dt);
-    for (const alien of this.aliens) {
+    for (const alien of (this.aliens || [])) {
       this._updateAlien(alien, dt);
     }
     this._updateStress(dt);
@@ -1392,7 +1392,7 @@ class Game {
           // Sprint generuje hluk — aliéni v dosahu slyší
           const pTile = Utils.worldToTile(p.x, p.y);
           let anyHeard = false;
-          for (const a of this.aliens) {
+          for (const a of (this.aliens || [])) {
             const distToAlien = Utils.distTiles(pTile, Utils.worldToTile(a.x, a.y));
             if (distToAlien <= CONFIG.ALIEN_HEARING_SPRINT && a.state !== 'hunt') {
               a.state = 'investigate';
@@ -1599,7 +1599,7 @@ class Game {
     // Nejbližší alien + nejagresivnější stav
     let radarDist = Infinity;
     let anyHunting = false;
-    for (const a of this.aliens) {
+    for (const a of (this.aliens || [])) {
       const d = Utils.distTiles({ x: p.x, y: p.y }, { x: a.x, y: a.y });
       if (d < radarDist) radarDist = d;
       if (a.state === 'hunt') anyHunting = true;
@@ -1626,7 +1626,7 @@ class Game {
     const newStress = Utils.clamp(p.stress + stressRate * dt, 0, 100);
 
     // Pokud jsou všichni aliené mimo radar a stres je pod 5 — ořízni na nulu
-    const allWandering = this.aliens.every(a => a.state === 'wander');
+    const allWandering = (this.aliens || []).every(a => a.state === 'wander');
     if (radarDist > CONFIG.STRESS_RADAR_MAX && allWandering && newStress < 5) {
       p.stress = 0;
     } else {
@@ -1664,7 +1664,7 @@ class Game {
         this.sound.door();
         GameLog.add('// DOOR OVERRIDE — CAUTION: NOISE', 'important');
         // Noise event — všichni aliéni v dosahu slyší
-        for (const a of this.aliens) {
+        for (const a of (this.aliens || [])) {
           const atile = Utils.worldToTile(a.x, a.y);
           const d = Math.hypot(tx - atile.x, ty - atile.y);
           if (d <= 10 && a.state !== 'hunt') {
@@ -2089,7 +2089,7 @@ class Game {
     }
 
     // ---- Draw entities AFTER map (always on top of floor) ----
-    for (const alienObj of this.aliens) {
+    for (const alienObj of (this.aliens || [])) {
     const at = Utils.worldToTile(alienObj.x, alienObj.y);
     if (this.visible.has(`${at.x},${at.y}`)) {
       const aPulse = Math.sin(Date.now()/200 + alienObj.id * 1.3) * 0.3 + 0.7;
@@ -2259,7 +2259,7 @@ class Game {
 
     // Alien status — nejbližší/nejnebezpečnější
     let minDist = Infinity, anyHunt = false, anyInv = false;
-    for (const a of this.aliens) {
+    for (const a of (this.aliens || [])) {
       const d = Utils.distTiles({ x: p.x, y: p.y }, { x: a.x, y: a.y });
       if (d < minDist) minDist = d;
       if (a.state === 'hunt') anyHunt = true;
@@ -2323,7 +2323,7 @@ class Game {
     // Alien blips on radar (all visible aliens)
     const p = this.player;
     const maxDist = 20;
-    for (const a of this.aliens) {
+    for (const a of (this.aliens || [])) {
       const adx = (a.x - p.x) / CONFIG.TILE;
       const ady = (a.y - p.y) / CONFIG.TILE;
       const adist = Math.hypot(adx, ady);
