@@ -1724,7 +1724,7 @@ class Game {
       showOverlay('ESCAPED',
         'YOU SURVIVED THE DEEP SHIP<br>ALL 5 DECKS CLEARED<br><br>CREW STATUS: UNKNOWN',
         'success', 'PLAY AGAIN',
-        () => { this.floor = 1; this._generateLevel(); this.state = GameState.PLAYING; });
+        () => { hideOverlay(); this.floor = 1; this._generateLevel(); this.state = GameState.PLAYING; requestAnimationFrame(t => this._loop(t)); });
     } else {
       const nextFloor = this.floor + 1;
       const nextAliens = CONFIG.aliensOnFloor(nextFloor);
@@ -1736,7 +1736,7 @@ class Game {
         `XENOMORPHS: ${nextAliens} &nbsp;|&nbsp; SPEED: +${speedPct}%<br><br>` +
         `THREAT LEVEL: ${'█'.repeat(this.floor - 1)}${'░'.repeat(5 - (this.floor-1))}`,
         'amber', 'NEXT DECK',
-        () => { this._generateLevel(); this.state = GameState.PLAYING; });
+        () => { hideOverlay(); this._generateLevel(); this.state = GameState.PLAYING; requestAnimationFrame(t => this._loop(t)); });
     }
   }
 
@@ -1746,6 +1746,7 @@ class Game {
     this.state = GameState.PLAYING;
     this.elapsed = 0;
     hideOverlay();
+    requestAnimationFrame(t => this._loop(t));
   }
 
   // ---- RENDER ----
