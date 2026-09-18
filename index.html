@@ -448,7 +448,7 @@ const CONFIG = {
   STRESS_RADAR_MID: 12,       // tiles — "blip je vidět na radaru"
   STRESS_RADAR_MAX: 20,       // tiles — max dosah radaru (stejné jako tracker)
 
-  // Alien
+  // Alien (base values — scale with floor)
   ALIEN_BASE_SPEED: 55,       // wander — pomalý, klidný
   ALIEN_INVESTIGATE_SPEED: 85,// slyšel něco — jde se podívat
   ALIEN_HUNT_SPEED: 140,      // vidí hráče — loví
@@ -461,6 +461,13 @@ const CONFIG = {
   ALIEN_ATTACK_DAMAGE: 25,
   ALIEN_ATTACK_COOLDOWN: 2,   // seconds
   ALIEN_LOSE_HUNT_TIME: 4,    // sekundy bez vizuálního kontaktu → přechod na investigate
+
+  // Difficulty scaling per floor
+  // aliensOnFloor(f): how many aliens appear
+  aliensOnFloor(f)  { return Math.min(1 + Math.floor((f - 1) / 2), 4); }, // 1,1,2,2,3,3,4...
+  speedMult(f)      { return 1 + (f - 1) * 0.12; },   // +12% speed per floor
+  visionMult(f)     { return 1 + (f - 1) * 0.10; },   // +10% vision per floor
+  damageMult(f)     { return 1 + (f - 1) * 0.15; },   // +15% damage per floor
 
   // Sound
   FOOTSTEP_WALK_INTERVAL: 99, // walk = žádné slyšitelné kroky (velmi tichý)
@@ -527,34 +534,59 @@ const IsoHelper = {
       c.strokeStyle = strokeColor; c.lineWidth = 0.5; c.stroke();
     }
   },
-  // Draw wall block — flat single colors per face
-  drawWall(c, sx, sy, topColor, southColor, eastColor) {
+  // Draw wall block — only exposed faces (no line between adjacent walls)
+  // showSouth: south face visible (no wall to the SW), showEast: east face visible (no wall to the SE)
+  // showTop: top face visible (no wall directly above — always true for outer walls)
+  drawWall(c, sx, sy, topColor, southColor, eastColor, showSouth, showEast, showTop) {
     const tw = CONFIG.ISO_TW, th = CONFIG.ISO_TH, wh = CONFIG.ISO_WALL_H;
-    // Top face
-    c.beginPath();
-    c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
-    c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
-    c.closePath();
-    c.fillStyle = topColor; c.fill();
-    // South face (left)
-    c.beginPath();
-    c.moveTo(sx - tw, sy); c.lineTo(sx, sy + th);
-    c.lineTo(sx, sy + th + wh); c.lineTo(sx - tw, sy + wh);
-    c.closePath();
-    c.fillStyle = southColor; c.fill();
-    // East face (right)
-    c.beginPath();
-    c.moveTo(sx, sy + th); c.lineTo(sx + tw, sy);
-    c.lineTo(sx + tw, sy + wh); c.lineTo(sx, sy + th + wh);
-    c.closePath();
-    c.fillStyle = eastColor; c.fill();
-    // Outline
-    c.beginPath();
-    c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
-    c.lineTo(sx + tw, sy + wh); c.lineTo(sx, sy + th + wh);
-    c.lineTo(sx - tw, sy + wh); c.lineTo(sx - tw, sy);
-    c.closePath();
-    c.strokeStyle = 'rgba(0,0,0,0.5)'; c.lineWidth = 0.7; c.stroke();
+    if (showTop !== false) {
+      // Top face always drawn (visible from above)
+      c.beginPath();
+      c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
+      c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
+      c.closePath();
+      c.fillStyle = topColor; c.fill();
+    }
+    if (showSouth !== false) {
+      // South face (SW side)
+      c.beginPath();
+      c.moveTo(sx - tw, sy); c.lineTo(sx, sy + th);
+      c.lineTo(sx, sy + th + wh); c.lineTo(sx - tw, sy + wh);
+      c.closePath();
+      c.fillStyle = southColor; c.fill();
+    }
+    if (showEast !== false) {
+      // East face (SE side)
+      c.beginPath();
+      c.moveTo(sx, sy + th); c.lineTo(sx + tw, sy);
+      c.lineTo(sx + tw, sy + wh); c.lineTo(sx, sy + th + wh);
+      c.closePath();
+      c.fillStyle = eastColor; c.fill();
+    }
+    // Only draw outer silhouette edges — skip shared interior edges
+    // Top outline
+    if (showTop !== false) {
+      c.beginPath();
+      c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
+      c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
+      c.closePath();
+      c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = 0.5; c.stroke();
+    }
+    // South face outline only if drawn
+    if (showSouth !== false) {
+      c.beginPath();
+      c.moveTo(sx - tw, sy + wh); c.lineTo(sx - tw, sy);
+      c.lineTo(sx, sy + th); c.lineTo(sx, sy + th + wh);
+      c.closePath();
+      c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = 0.5; c.stroke();
+    }
+    if (showEast !== false) {
+      c.beginPath();
+      c.moveTo(sx, sy + th); c.lineTo(sx + tw, sy);
+      c.lineTo(sx + tw, sy + wh); c.lineTo(sx, sy + th + wh);
+      c.closePath();
+      c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = 0.5; c.stroke();
+    }
   },
   // Draw a box/crate on a tile (for items, doors etc)
   drawBox(c, sx, sy, h, topColor, southColor, eastColor) {
@@ -919,12 +951,27 @@ class MapGenerator {
     }
 
     const playerStart = Utils.tileToWorld(playerRoom.cx, playerRoom.cy);
-    const alienStart  = Utils.tileToWorld(alienRoom.cx,  alienRoom.cy);
     const exitPos     = { tx: exitTx, ty: exitTy };
 
-    // Items: one per 3rd room, skip player/alien/exit rooms
+    // Alien start positions — spread across far rooms
+    // First alien in the farthest room, additional ones in rooms between
+    const usedRooms = new Set([playerRoom, exitRoom]);
+    const alienStarts = [];
+    // Rooms sorted by distance from player (farthest first)
+    const byDist = [...sorted].sort((a,b) =>
+      Math.hypot(b.cx-playerRoom.cx, b.cy-playerRoom.cy) -
+      Math.hypot(a.cx-playerRoom.cx, a.cy-playerRoom.cy)
+    );
+    for (const room of byDist) {
+      if (usedRooms.has(room)) continue;
+      alienStarts.push(Utils.tileToWorld(room.cx, room.cy));
+      usedRooms.add(room);
+      if (alienStarts.length >= 4) break; // max 4 aliens
+    }
+    if (alienStarts.length === 0) alienStarts.push(Utils.tileToWorld(CONFIG.COLS-10, CONFIG.ROWS-10));
+
+    // Items: one per 3rd room, skip used rooms
     const items = [];
-    const usedRooms = new Set([playerRoom, alienRoom, exitRoom]);
     sorted.forEach((room, i) => {
       if (usedRooms.has(room)) return;
       if (i % 3 === 0) {
@@ -934,7 +981,7 @@ class MapGenerator {
       }
     });
 
-    return { playerStart, alienStart, exitPos, items };
+    return { playerStart, alienStarts, exitPos, items };
   }
 }
 
@@ -1190,11 +1237,7 @@ class Game {
     this._lightToggleWasDown = false;
     this._footstepTimer = 0;
     this._alienSoundTimer = 0;
-    this._attackTimer = 0;
     this._attackFlash = false;
-    this._alienReroute = 0;
-    this._wanderTimer = 0;
-    this._wanderDir = { dx: 1, dy: 0 };
   }
 
   init() {
@@ -1227,25 +1270,46 @@ class Game {
       facing: { dx: 1, dy: 0 },
     };
 
-    // Alien
-    this.alien = {
-      x: result.alienStart.x,
-      y: result.alienStart.y,
-      state: 'wander', // wander | hunt | investigate
-      path: [],
-      lastKnownPlayer: null,
-      speed: CONFIG.ALIEN_BASE_SPEED,
-    };
+    // Difficulty scaling for this floor
+    const speedMult  = CONFIG.speedMult(this.floor);
+    const visionMult = CONFIG.visionMult(this.floor);
+    const alienCount = CONFIG.aliensOnFloor(this.floor);
+
+    // Aliens — multiple per deck
+    this.aliens = [];
+    for (let i = 0; i < alienCount; i++) {
+      const startPos = result.alienStarts[i % result.alienStarts.length];
+      // Slightly offset each alien so they don't start stacked
+      const offsetX = (i > 0) ? Utils.rng(-3,3) * CONFIG.TILE : 0;
+      const offsetY = (i > 0) ? Utils.rng(-3,3) * CONFIG.TILE : 0;
+      this.aliens.push({
+        x: startPos.x + offsetX,
+        y: startPos.y + offsetY,
+        state: 'wander',
+        path: [],
+        lastKnownPlayer: null,
+        speed: CONFIG.ALIEN_BASE_SPEED * speedMult,
+        huntSpeed: CONFIG.ALIEN_HUNT_SPEED * speedMult,
+        investigateSpeed: CONFIG.ALIEN_INVESTIGATE_SPEED * speedMult,
+        visionDist: CONFIG.ALIEN_VISION_DIST * visionMult,
+        damage: CONFIG.ALIEN_ATTACK_DAMAGE * CONFIG.damageMult(this.floor),
+        lostSightTimer: 0,
+        attackTimer: CONFIG.ALIEN_ATTACK_COOLDOWN + i * 0.5, // stagger attack timers
+        wanderTimer: Math.random() * CONFIG.ALIEN_WANDER_CHANGE,
+        rerouteTimer: 0,
+        vx: 1, vy: 0,
+        id: i,
+      });
+    }
+    // Keep alias to first alien for legacy tracker/HUD
+    this.alien = this.aliens[0];
 
     this.exitPos = result.exitPos;
     this.items = result.items;
 
-    // Reset všech herních timerů při novém levelu
+    // Reset herních timerů při novém levelu
     this._footstepTimer = 0;
     this._alienSoundTimer = 0;
-    this._attackTimer = CONFIG.ALIEN_ATTACK_COOLDOWN; // grace period na začátku
-    this._alienReroute = 0;
-    this._wanderTimer = 0;
 
     // Visible set
     this.visible = new Set();
@@ -1290,7 +1354,9 @@ class Game {
   // ---- UPDATE ----
   _update(dt) {
     this._updatePlayer(dt);
-    this._updateAlien(dt);
+    for (const alien of this.aliens) {
+      this._updateAlien(alien, dt);
+    }
     this._updateStress(dt);
     this._updateFOV();
     this._checkInteraction();
@@ -1323,16 +1389,18 @@ class Game {
           this.sound.footstep(true);
           this._footstepTimer = CONFIG.FOOTSTEP_SPRINT_INTERVAL;
 
-          // Sprint generuje hluk — alien slyší
-          const distToAlien = Utils.distTiles(
-            Utils.worldToTile(p.x, p.y),
-            Utils.worldToTile(this.alien.x, this.alien.y)
-          );
-          if (distToAlien <= CONFIG.ALIEN_HEARING_SPRINT && this.alien.state !== 'hunt') {
-            this.alien.state = 'investigate';
-            this.alien.lastKnownPlayer = { ...Utils.worldToTile(p.x, p.y) };
-            GameLog.add('// POHYB DETEKOVÁN — ZPOMAL', 'danger');
+          // Sprint generuje hluk — aliéni v dosahu slyší
+          const pTile = Utils.worldToTile(p.x, p.y);
+          let anyHeard = false;
+          for (const a of this.aliens) {
+            const distToAlien = Utils.distTiles(pTile, Utils.worldToTile(a.x, a.y));
+            if (distToAlien <= CONFIG.ALIEN_HEARING_SPRINT && a.state !== 'hunt') {
+              a.state = 'investigate';
+              a.lastKnownPlayer = { ...pTile };
+              anyHeard = true;
+            }
           }
+          if (anyHeard) GameLog.add('// POHYB DETEKOVÁN — ZPOMAL', 'danger');
         }
       } else {
         this._footstepTimer = 0; // walk = ticho, žádný timer
@@ -1363,8 +1431,7 @@ class Game {
     }
   }
 
-  _updateAlien(dt) {
-    const a = this.alien;
+  _updateAlien(a, dt) {
     const playerTile = Utils.worldToTile(this.player.x, this.player.y);
     const alienTile = Utils.worldToTile(a.x, a.y);
     const distToPlayer = Utils.dist(
@@ -1373,73 +1440,66 @@ class Game {
     ) / CONFIG.TILE;
 
     // --- Cone of vision: může vidět hráče? ---
-    const canSeePlayer = this._alienCanSeePlayer(alienTile, distToPlayer);
+    const canSeePlayer = this._alienCanSeePlayer(a, alienTile, distToPlayer);
 
     if (canSeePlayer) {
       if (a.state !== 'hunt') {
         a.state = 'hunt';
         a.lostSightTimer = 0;
         this.sound.alarm();
-        GameLog.add('// XENOMORF MÁ VIZUÁLNÍ KONTAKT — UTÍ KEJ', 'danger');
+        if (a.id === 0) GameLog.add('// XENOMORF MÁ VIZUÁLNÍ KONTAKT — UTÍKEJ', 'danger');
+        else GameLog.add(`// XENOMORF #${a.id+1} ZAHÁJIL HON`, 'danger');
       }
       a.lastKnownPlayer = { ...playerTile };
       a.lostSightTimer = 0;
     } else if (a.state === 'hunt') {
-      // Alien ztratil hráče z dohledu — odpočítává čas
-      a.lostSightTimer = (a.lostSightTimer || 0) + dt;
+      a.lostSightTimer += dt;
       if (a.lostSightTimer >= CONFIG.ALIEN_LOSE_HUNT_TIME) {
         a.state = 'investigate';
         a.path = [];
-        GameLog.add('// XENOMORF ZTRATIL STOPU — SCHOVEJ SE', 'important');
+        if (a.id === 0) GameLog.add('// XENOMORF ZTRATIL STOPU — SCHOVEJ SE', 'important');
       }
     }
 
     // --- Rychlost podle stavu ---
-    if (a.state === 'hunt') {
-      a.speed = CONFIG.ALIEN_HUNT_SPEED;
-    } else if (a.state === 'investigate') {
-      a.speed = CONFIG.ALIEN_INVESTIGATE_SPEED;
-    } else {
-      a.speed = CONFIG.ALIEN_BASE_SPEED;
-    }
+    const curSpeed = a.state === 'hunt' ? a.huntSpeed :
+                     a.state === 'investigate' ? a.investigateSpeed : a.speed;
 
     // --- Pohyb ---
     if (a.state === 'hunt') {
-      // Přepočítávej cestu průběžně
-      this._alienReroute -= dt;
-      if (this._alienReroute <= 0 || a.path.length === 0) {
+      a.rerouteTimer -= dt;
+      if (a.rerouteTimer <= 0 || a.path.length === 0) {
         a.path = this.pathfinder.findPath(alienTile.x, alienTile.y, playerTile.x, playerTile.y);
-        this._alienReroute = 0.4;
+        a.rerouteTimer = 0.4;
       }
-      this._moveAlongPath(dt);
+      this._moveAlongPath(a, curSpeed, dt);
     } else if (a.state === 'investigate') {
       if (a.lastKnownPlayer) {
-        this._alienReroute -= dt;
-        if (this._alienReroute <= 0 || a.path.length === 0) {
+        a.rerouteTimer -= dt;
+        if (a.rerouteTimer <= 0 || a.path.length === 0) {
           a.path = this.pathfinder.findPath(alienTile.x, alienTile.y, a.lastKnownPlayer.x, a.lastKnownPlayer.y);
-          this._alienReroute = 1.5;
+          a.rerouteTimer = 1.5;
         }
-        this._moveAlongPath(dt);
-        // Dorazil na místo — přechod zpět na wander
+        this._moveAlongPath(a, curSpeed, dt);
         if (alienTile.x === a.lastKnownPlayer.x && alienTile.y === a.lastKnownPlayer.y) {
           a.state = 'wander';
           a.path = [];
           a.lastKnownPlayer = null;
-          GameLog.add('// NEBEZPEČÍ POMINULO', '');
+          if (a.id === 0) GameLog.add('// NEBEZPEČÍ POMINULO', '');
         }
       } else {
         a.state = 'wander';
       }
     } else {
-      this._alienWander(dt);
+      this._alienWander(a, curSpeed, dt);
     }
 
     // --- Útok ---
     if (distToPlayer <= CONFIG.ALIEN_ATTACK_RANGE) {
-      this._attackTimer -= dt;
-      if (this._attackTimer <= 0) {
-        this.player.health -= CONFIG.ALIEN_ATTACK_DAMAGE;
-        this._attackTimer = CONFIG.ALIEN_ATTACK_COOLDOWN;
+      a.attackTimer -= dt;
+      if (a.attackTimer <= 0) {
+        this.player.health -= a.damage;
+        a.attackTimer = CONFIG.ALIEN_ATTACK_COOLDOWN;
         this._attackFlash = true;
         setTimeout(() => { this._attackFlash = false; }, 150);
         GameLog.add('// KONTAKT — POŠKOZENÍ PŘIJATO', 'danger');
@@ -1447,8 +1507,8 @@ class Game {
       }
     }
 
-    // --- Ambient zvuk podle vzdálenosti ---
-    if (distToPlayer <= 15) {
+    // --- Ambient zvuk (pouze nejbližší alien) ---
+    if (a.id === 0 && distToPlayer <= 15) {
       this._alienSoundTimer -= dt;
       if (this._alienSoundTimer <= 0) {
         this.sound.alienNear();
@@ -1458,11 +1518,10 @@ class Game {
     }
   }
 
-  // Kužel výhledu aliena — vlastní FOV nezávislý na hráčově baterce
-  _alienCanSeePlayer(alienTile, distToPlayer) {
-    if (distToPlayer > CONFIG.ALIEN_VISION_DIST) return false;
+  // Kužel výhledu aliena
+  _alienCanSeePlayer(a, alienTile, distToPlayer) {
+    if (distToPlayer > a.visionDist) return false;
 
-    const a = this.alien;
     const p = this.player;
 
     // Směr pohybu aliena (vx/vy uloženo při pohybu)
@@ -1476,7 +1535,6 @@ class Game {
     const coneHalf = (CONFIG.ALIEN_VISION_CONE * Math.PI) / 180;
     if (angleDiff > coneHalf) return false;
 
-    // Přímá viditelnost — žádná zeď mezi alienem a hráčem (ray test)
     const playerTile = Utils.worldToTile(p.x, p.y);
     if (!this._hasLineOfSight(alienTile.x, alienTile.y, playerTile.x, playerTile.y)) return false;
 
@@ -1502,8 +1560,7 @@ class Game {
     }
   }
 
-  _moveAlongPath(dt) {
-    const a = this.alien;
+  _moveAlongPath(a, speed, dt) {
     if (!a.path || a.path.length === 0) return;
     const next = a.path[0];
     const target = Utils.tileToWorld(next.x, next.y);
@@ -1514,44 +1571,43 @@ class Game {
       a.x = target.x; a.y = target.y;
       a.path.shift();
     } else {
-      const step = a.speed * dt;
-      a.vx = dx / dist; // uložit směr pro cone of vision
+      const step = speed * dt;
+      a.vx = dx / dist;
       a.vy = dy / dist;
       a.x += a.vx * step;
       a.y += a.vy * step;
     }
   }
 
-  _alienWander(dt) {
-    const a = this.alien;
-    this._wanderTimer -= dt;
-    if (this._wanderTimer <= 0 || a.path.length === 0) {
+  _alienWander(a, speed, dt) {
+    a.wanderTimer -= dt;
+    if (a.wanderTimer <= 0 || a.path.length === 0) {
       if (this.rooms.length > 0) {
         const room = this.rooms[Utils.rng(0, this.rooms.length-1)];
         const at = Utils.worldToTile(a.x, a.y);
         a.path = this.pathfinder.findPath(at.x, at.y, room.cx, room.cy);
       }
-      this._wanderTimer = CONFIG.ALIEN_WANDER_CHANGE + Math.random() * 4;
+      a.wanderTimer = CONFIG.ALIEN_WANDER_CHANGE + Math.random() * 4;
     }
-    this._moveAlongPath(dt);
-    // Defaultní facing pokud stojí
+    this._moveAlongPath(a, speed, dt);
     if (!a.vx) { a.vx = 1; a.vy = 0; }
   }
 
   _updateStress(dt) {
     const p = this.player;
-    const a = this.alien;
 
-    // Radarová vzdálenost v tiles — distTiles bere světové souřadnice (pixely)
-    const radarDist = Utils.distTiles(
-      { x: p.x, y: p.y },
-      { x: a.x, y: a.y }
-    );
+    // Nejbližší alien + nejagresivnější stav
+    let radarDist = Infinity;
+    let anyHunting = false;
+    for (const a of this.aliens) {
+      const d = Utils.distTiles({ x: p.x, y: p.y }, { x: a.x, y: a.y });
+      if (d < radarDist) radarDist = d;
+      if (a.state === 'hunt') anyHunting = true;
+    }
 
     let stressRate = 0;
 
-    if (a.state === 'hunt') {
-      // Alien aktivně loví — maximální stres, rychlý nárůst
+    if (anyHunting) {
       stressRate = CONFIG.STRESS_INCREASE_HUNT;
     } else if (radarDist <= CONFIG.STRESS_RADAR_NEAR) {
       // Blip blízko středu radaru
@@ -1569,8 +1625,9 @@ class Game {
 
     const newStress = Utils.clamp(p.stress + stressRate * dt, 0, 100);
 
-    // Pokud je alien mimo radar a stres je pod 5 — ořízni na nulu
-    if (radarDist > CONFIG.STRESS_RADAR_MAX && a.state === 'wander' && newStress < 5) {
+    // Pokud jsou všichni aliené mimo radar a stres je pod 5 — ořízni na nulu
+    const allWandering = this.aliens.every(a => a.state === 'wander');
+    if (radarDist > CONFIG.STRESS_RADAR_MAX && allWandering && newStress < 5) {
       p.stress = 0;
     } else {
       p.stress = newStress;
@@ -1606,12 +1663,14 @@ class Game {
         this.tiles[ty][tx] = TILE.DOOR_OPEN;
         this.sound.door();
         GameLog.add('// DOOR OVERRIDE — CAUTION: NOISE', 'important');
-        // Noise event — porovnání v tile souřadnicích
-        const atile = Utils.worldToTile(this.alien.x, this.alien.y);
-        const d = Math.hypot(tx - atile.x, ty - atile.y);
-        if (d <= 10) {
-          this.alien.state = 'investigate';
-          this.alien.lastKnownPlayer = { x: tx, y: ty };
+        // Noise event — všichni aliéni v dosahu slyší
+        for (const a of this.aliens) {
+          const atile = Utils.worldToTile(a.x, a.y);
+          const d = Math.hypot(tx - atile.x, ty - atile.y);
+          if (d <= 10 && a.state !== 'hunt') {
+            a.state = 'investigate';
+            a.lastKnownPlayer = { x: tx, y: ty };
+          }
         }
         return;
       }
@@ -1662,13 +1721,22 @@ class Game {
     this.sound.levelComplete();
     if (this.floor >= this.totalFloors) {
       this.state = GameState.WIN;
-      showOverlay('ESCAPED', 'YOU SURVIVED THE DEEP SHIP', 'success',
-        'PLAY AGAIN', () => { this.floor = 1; this._generateLevel(); this.state = GameState.PLAYING; });
+      showOverlay('ESCAPED',
+        'YOU SURVIVED THE DEEP SHIP<br>ALL 5 DECKS CLEARED<br><br>CREW STATUS: UNKNOWN',
+        'success', 'PLAY AGAIN',
+        () => { this.floor = 1; this._generateLevel(); this.state = GameState.PLAYING; });
     } else {
-      this.floor++;
+      const nextFloor = this.floor + 1;
+      const nextAliens = CONFIG.aliensOnFloor(nextFloor);
+      const speedPct = Math.round((CONFIG.speedMult(nextFloor) - 1) * 100);
+      this.floor = nextFloor;
       this.state = GameState.LEVEL_COMPLETE;
-      showOverlay(`DECK ${this.floor - 1} CLEARED`, `PROCEEDING TO DECK ${this.floor}`, 'amber',
-        'NEXT DECK', () => { this._generateLevel(); this.state = GameState.PLAYING; });
+      showOverlay(`DECK ${this.floor - 1} CLEARED`,
+        `PROCEEDING TO DECK ${String(this.floor).padStart(2,'0')}<br>` +
+        `XENOMORPHS: ${nextAliens} &nbsp;|&nbsp; SPEED: +${speedPct}%<br><br>` +
+        `THREAT LEVEL: ${'█'.repeat(this.floor - 1)}${'░'.repeat(5 - (this.floor-1))}`,
+        'amber', 'NEXT DECK',
+        () => { this._generateLevel(); this.state = GameState.PLAYING; });
     }
   }
 
@@ -1721,14 +1789,25 @@ class Game {
       const sx = iso.x, sy = iso.y;
 
       if (tile === TILE.EMPTY || tile === TILE.WALL) {
+        // Check neighbours to suppress shared faces (seamless walls)
+        const isWallTile = (ntx, nty) => {
+          if (nty < 0 || nty >= CONFIG.ROWS || ntx < 0 || ntx >= CONFIG.COLS) return true;
+          const nt = this.tiles[nty][ntx];
+          return nt === TILE.WALL || nt === TILE.EMPTY;
+        };
+        // South face hidden if neighbour to SW (tx-1, ty) is also a wall
+        const hideSouth = isWallTile(tx - 1, ty);
+        // East face hidden if neighbour to SE (tx, ty+1) is also a wall
+        const hideEast  = isWallTile(tx, ty + 1);
         if (isVisible) {
           IsoHelper.drawWall(c, sx, sy,
-            '#1a3a20', // top
-            '#0a1a0e', // south
-            '#0d2212'  // east
+            '#1a3a20', '#0a1a0e', '#0d2212',
+            !hideSouth, !hideEast, true
           );
         } else if (isSeen) {
-          IsoHelper.drawWall(c, sx, sy, '#0e1f12', '#060f08', '#080f0a');
+          IsoHelper.drawWall(c, sx, sy, '#0e1f12', '#060f08', '#080f0a',
+            !hideSouth, !hideEast, true
+          );
         }
         continue;
       }
@@ -2010,11 +2089,13 @@ class Game {
     }
 
     // ---- Draw entities AFTER map (always on top of floor) ----
-    const at = Utils.worldToTile(this.alien.x, this.alien.y);
+    for (const alienObj of this.aliens) {
+    const at = Utils.worldToTile(alienObj.x, alienObj.y);
     if (this.visible.has(`${at.x},${at.y}`)) {
-      const aPulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
-      const aIso = IsoHelper.toScreen(this.alien.x / T, this.alien.y / T);
+      const aPulse = Math.sin(Date.now()/200 + alienObj.id * 1.3) * 0.3 + 0.7;
+      const aIso = IsoHelper.toScreen(alienObj.x / T, alienObj.y / T);
       const ax = aIso.x, ay = aIso.y;
+      // Hunting alien glows more intensely
       const ah = 26;
       c.fillStyle = 'rgba(0,0,0,0.45)';
       c.beginPath();
@@ -2073,7 +2154,8 @@ class Game {
       c.strokeStyle=`rgba(0,200,60,${aPulse*0.3})`; c.lineWidth=1;
       c.beginPath(); c.ellipse(ax,ay-ah*0.55,9,ah*0.55,0,0,Math.PI*2); c.stroke();
       c.shadowBlur=0;
-    }
+    } // end visible check
+    } // end aliens loop
 
     // Player always on top
     {
@@ -2175,21 +2257,25 @@ class Game {
     document.getElementById('val-stress').textContent = Math.round(p.stress);
     document.getElementById('val-o2').textContent = Math.round(p.o2);
 
-    // Alien distance + stav
-    const radarDist = Utils.distTiles(
-      { x: p.x, y: p.y },
-      { x: this.alien.x, y: this.alien.y }
-    );
+    // Alien status — nejbližší/nejnebezpečnější
+    let minDist = Infinity, anyHunt = false, anyInv = false;
+    for (const a of this.aliens) {
+      const d = Utils.distTiles({ x: p.x, y: p.y }, { x: a.x, y: a.y });
+      if (d < minDist) minDist = d;
+      if (a.state === 'hunt') anyHunt = true;
+      if (a.state === 'investigate') anyInv = true;
+    }
     const alienEl = document.getElementById('alien-dist');
-    if (this.alien.state === 'hunt') {
-      alienEl.textContent = '⚠ LOVÍ';
+    const count = this.aliens.length > 1 ? ` ×${this.aliens.length}` : '';
+    if (anyHunt) {
+      alienEl.textContent = `⚠ LOVÍ${count}`;
       alienEl.style.color = 'var(--red)';
-    } else if (this.alien.state === 'investigate') {
-      alienEl.textContent = '? PÁTRÁ';
+    } else if (anyInv) {
+      alienEl.textContent = `? PÁTRÁ${count}`;
       alienEl.style.color = 'var(--amber)';
     } else {
-      alienEl.textContent = Math.round(radarDist * 1.5) + 'm';
-      alienEl.style.color = radarDist < 8 ? 'var(--amber)' : 'var(--green)';
+      alienEl.textContent = Math.round(minDist * 1.5) + 'm' + count;
+      alienEl.style.color = minDist < 8 ? 'var(--amber)' : 'var(--green)';
     }
 
     // Time
@@ -2234,21 +2320,26 @@ class Game {
     tc.arc(cx, cy, 2, 0, Math.PI*2);
     tc.fill();
 
-    // Alien blip (distance only — authentic to film)
-    const p = this.player, a = this.alien;
-    const adx = (a.x - p.x) / CONFIG.TILE;
-    const ady = (a.y - p.y) / CONFIG.TILE;
-    const adist = Math.hypot(adx, ady);
+    // Alien blips on radar (all visible aliens)
+    const p = this.player;
     const maxDist = 20;
-    if (adist < maxDist) {
-      const scale = Math.min(adist / maxDist, 1) * R;
-      const bx = cx + (adx / adist) * scale;
-      const by = cy + (ady / adist) * scale;
-      const pulse = (Math.sin(Date.now()/150) + 1) / 2;
-      tc.fillStyle = `rgba(255,80,80,${0.7 + pulse*0.3})`;
-      tc.beginPath();
-      tc.arc(bx, by, 3, 0, Math.PI*2);
-      tc.fill();
+    for (const a of this.aliens) {
+      const adx = (a.x - p.x) / CONFIG.TILE;
+      const ady = (a.y - p.y) / CONFIG.TILE;
+      const adist = Math.hypot(adx, ady);
+      if (adist < maxDist) {
+        const scale = Math.min(adist / maxDist, 1) * R;
+        const bx = cx + (adx / adist) * scale;
+        const by = cy + (ady / adist) * scale;
+        const pulse = (Math.sin(Date.now()/150 + a.id) + 1) / 2;
+        // Hunting aliens show as brighter/larger blip
+        const blipColor = a.state === 'hunt' ? `rgba(255,40,40,${0.9+pulse*0.1})` : `rgba(255,80,80,${0.7+pulse*0.3})`;
+        const blipR = a.state === 'hunt' ? 4 : 3;
+        tc.fillStyle = blipColor;
+        tc.beginPath();
+        tc.arc(bx, by, blipR, 0, Math.PI*2);
+        tc.fill();
+      }
     }
 
     // Border
