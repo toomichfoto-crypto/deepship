@@ -488,6 +488,23 @@ const CONFIG = {
   ISO_WALL_H: 20,   // height of wall extrusion in pixels
 };
 
+// ---- COLOR HELPERS ----
+function hexToRgb(hex) {
+  if (hex.startsWith('rgba') || hex.startsWith('rgb')) return null;
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return {r,g,b};
+}
+function lighten(color, amount) {
+  const rgb = hexToRgb(color);
+  if (!rgb) return color;
+  return `rgb(${Math.min(255,Math.round(rgb.r+255*amount))},${Math.min(255,Math.round(rgb.g+255*amount))},${Math.min(255,Math.round(rgb.b+255*amount))})`;
+}
+function darken(color, amount) {
+  const rgb = hexToRgb(color);
+  if (!rgb) return color;
+  return `rgb(${Math.max(0,Math.round(rgb.r-255*amount))},${Math.max(0,Math.round(rgb.g-255*amount))},${Math.max(0,Math.round(rgb.b-255*amount))})`;
+}
+
 // ---- ISO HELPER ----
 const IsoHelper = {
   // Convert tile coords to isometric screen coords (relative to origin)
@@ -498,64 +515,112 @@ const IsoHelper = {
     };
   },
   // Draw floor diamond
-  drawFloor(c, sx, sy, fillColor, strokeColor) {
+  drawFloor(c, sx, sy, fillColor, strokeColor, variant) {
     const tw = CONFIG.ISO_TW, th = CONFIG.ISO_TH;
+    // Base gradient
+    const grad = c.createLinearGradient(sx - tw, sy - th, sx + tw, sy + th);
+    grad.addColorStop(0, lighten(fillColor, 0.15));
+    grad.addColorStop(0.5, fillColor);
+    grad.addColorStop(1, darken(fillColor, 0.2));
     c.beginPath();
-    c.moveTo(sx, sy - th);
-    c.lineTo(sx + tw, sy);
-    c.lineTo(sx, sy + th);
-    c.lineTo(sx - tw, sy);
+    c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
+    c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
     c.closePath();
-    c.fillStyle = fillColor;
+    c.fillStyle = grad;
     c.fill();
-    if (strokeColor) {
-      c.strokeStyle = strokeColor;
+    // Highlight top-left edge
+    c.beginPath();
+    c.moveTo(sx - tw, sy); c.lineTo(sx, sy - th); c.lineTo(sx + tw, sy);
+    c.strokeStyle = 'rgba(255,255,255,0.06)';
+    c.lineWidth = 1;
+    c.stroke();
+    // Dark bottom edge
+    c.beginPath();
+    c.moveTo(sx - tw, sy); c.lineTo(sx, sy + th); c.lineTo(sx + tw, sy);
+    c.strokeStyle = 'rgba(0,0,0,0.25)';
+    c.lineWidth = 1;
+    c.stroke();
+    // Floor detail lines (metal plates)
+    if (variant !== undefined && variant % 3 === 0) {
+      c.strokeStyle = 'rgba(0,0,0,0.12)';
       c.lineWidth = 0.5;
+      c.beginPath();
+      c.moveTo(sx - tw*0.5, sy - th*0.5); c.lineTo(sx + tw*0.5, sy - th*0.5);
       c.stroke();
+    }
+    if (strokeColor) {
+      c.beginPath();
+      c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
+      c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
+      c.closePath();
+      c.strokeStyle = strokeColor; c.lineWidth = 0.5; c.stroke();
     }
   },
   // Draw wall block (top face + south face + east face)
   drawWall(c, sx, sy, topColor, southColor, eastColor) {
     const tw = CONFIG.ISO_TW, th = CONFIG.ISO_TH, wh = CONFIG.ISO_WALL_H;
-    // Top face (diamond)
+
+    // Top face with gradient
+    const topGrad = c.createLinearGradient(sx - tw, sy - th, sx + tw, sy + th);
+    topGrad.addColorStop(0, lighten(topColor, 0.3));
+    topGrad.addColorStop(1, darken(topColor, 0.1));
     c.beginPath();
-    c.moveTo(sx, sy - th);
-    c.lineTo(sx + tw, sy);
-    c.lineTo(sx, sy + th);
-    c.lineTo(sx - tw, sy);
+    c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
+    c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
     c.closePath();
-    c.fillStyle = topColor;
-    c.fill();
-    // South face (left side going down)
+    c.fillStyle = topGrad; c.fill();
+
+    // South face (left side)
+    const sGrad = c.createLinearGradient(sx - tw, sy, sx, sy + th + wh);
+    sGrad.addColorStop(0, southColor);
+    sGrad.addColorStop(1, darken(southColor, 0.3));
     c.beginPath();
-    c.moveTo(sx - tw, sy);
-    c.lineTo(sx, sy + th);
-    c.lineTo(sx, sy + th + wh);
-    c.lineTo(sx - tw, sy + wh);
+    c.moveTo(sx - tw, sy); c.lineTo(sx, sy + th);
+    c.lineTo(sx, sy + th + wh); c.lineTo(sx - tw, sy + wh);
     c.closePath();
-    c.fillStyle = southColor;
-    c.fill();
-    // East face (right side going down)
-    c.beginPath();
-    c.moveTo(sx, sy + th);
-    c.lineTo(sx + tw, sy);
-    c.lineTo(sx + tw, sy + wh);
-    c.lineTo(sx, sy + th + wh);
-    c.closePath();
-    c.fillStyle = eastColor;
-    c.fill();
-    // Outline
-    c.strokeStyle = 'rgba(0,0,0,0.4)';
+    c.fillStyle = sGrad; c.fill();
+    // Panel lines on south face
+    c.strokeStyle = 'rgba(0,0,0,0.2)';
     c.lineWidth = 0.5;
+    for (let i = 1; i < 3; i++) {
+      const t = i / 3;
+      c.beginPath();
+      c.moveTo(sx - tw + tw*t, sy + th*t);
+      c.lineTo(sx - tw + tw*t, sy + th*t + wh);
+      c.stroke();
+    }
+
+    // East face (right side)
+    const eGrad = c.createLinearGradient(sx, sy + th, sx + tw, sy);
+    eGrad.addColorStop(0, eastColor);
+    eGrad.addColorStop(1, lighten(eastColor, 0.1));
     c.beginPath();
-    c.moveTo(sx, sy - th);
-    c.lineTo(sx + tw, sy);
-    c.lineTo(sx + tw, sy + wh);
-    c.lineTo(sx, sy + th + wh);
-    c.lineTo(sx - tw, sy + wh);
-    c.lineTo(sx - tw, sy);
+    c.moveTo(sx, sy + th); c.lineTo(sx + tw, sy);
+    c.lineTo(sx + tw, sy + wh); c.lineTo(sx, sy + th + wh);
     c.closePath();
-    c.stroke();
+    c.fillStyle = eGrad; c.fill();
+    // Horizontal lines on east face
+    c.strokeStyle = 'rgba(255,255,255,0.05)';
+    c.lineWidth = 0.5;
+    for (let i = 1; i < 3; i++) {
+      const y = sy + th + (wh * i / 3);
+      const y2 = sy + (wh * i / 3);
+      c.beginPath();
+      c.moveTo(sx, y); c.lineTo(sx + tw, y2);
+      c.stroke();
+    }
+
+    // Bright top edge highlight
+    c.beginPath();
+    c.moveTo(sx - tw, sy); c.lineTo(sx, sy - th); c.lineTo(sx + tw, sy);
+    c.strokeStyle = 'rgba(255,255,255,0.15)'; c.lineWidth = 1; c.stroke();
+
+    // Dark bottom outline
+    c.beginPath();
+    c.moveTo(sx - tw, sy); c.lineTo(sx - tw, sy + wh);
+    c.lineTo(sx, sy + th + wh); c.lineTo(sx + tw, sy + wh);
+    c.lineTo(sx + tw, sy);
+    c.strokeStyle = 'rgba(0,0,0,0.5)'; c.lineWidth = 0.7; c.stroke();
   },
   // Draw a box/crate on a tile (for items, doors etc)
   drawBox(c, sx, sy, h, topColor, southColor, eastColor) {
@@ -1159,6 +1224,11 @@ class Game {
     this.visible = new Set();
     this._updateFOV();
 
+    // Floor texture variants (static per tile)
+    this.floorVariants = Array.from({length: CONFIG.ROWS}, (_, ty) =>
+      Array.from({length: CONFIG.COLS}, (_, tx) => (tx * 7 + ty * 13) % 9)
+    );
+
     // Pre-compute painter's order (tx+ty ascending) — done once per level
     this._paintOrder = [];
     for (let depth = 0; depth < CONFIG.COLS + CONFIG.ROWS; depth++) {
@@ -1214,7 +1284,10 @@ class Game {
     if (this._canMove(p.x, ny)) p.y = ny;
 
     if (mv.dx !== 0 || mv.dy !== 0) {
-      p.facing = { dx: mv.dx || p.facing.dx, dy: mv.dy || p.facing.dy };
+      const targetFacingX = mv.dx || p.facing.dx;
+      const targetFacingY = mv.dy || p.facing.dy;
+      p.facing.dx += (targetFacingX - p.facing.dx) * Math.min(1, dt * 12);
+      p.facing.dy += (targetFacingY - p.facing.dy) * Math.min(1, dt * 12);
 
       // Hluk pouze při sprintu
       if (sprint) {
@@ -1651,7 +1724,7 @@ class Game {
       } else {
         floorColor = '#080e08'; floorStroke = null;
       }
-      IsoHelper.drawFloor(c, sx, sy, floorColor, floorStroke);
+      IsoHelper.drawFloor(c, sx, sy, floorColor, floorStroke, this.floorVariants[ty][tx]);
 
       if (!isVisible) continue;
 
@@ -1722,40 +1795,95 @@ class Game {
         const aPulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
         const aIso = IsoHelper.toScreen(this.alien.x / T, this.alien.y / T);
         const ax = aIso.x, ay = aIso.y;
-        const ah = 22;
-        c.fillStyle = 'rgba(0,0,0,0.4)';
+        const ah = 26;
+        // Ground shadow
+        c.fillStyle = 'rgba(0,0,0,0.45)';
         c.beginPath();
-        c.ellipse(ax, ay + TH*0.5, TW*0.5, TH*0.3, 0, 0, Math.PI*2);
+        c.ellipse(ax, ay + TH*0.5, TW*0.5, TH*0.22, 0, 0, Math.PI*2);
         c.fill();
-        c.fillStyle = `rgba(60,${Math.round(180*aPulse)},90,0.95)`;
+        // Tail
+        c.strokeStyle = `rgba(20,${Math.round(80*aPulse)},30,0.8)`;
+        c.lineWidth = 2;
+        c.lineCap = 'round';
         c.beginPath();
-        c.moveTo(ax - 5, ay + TH*0.2);
-        c.lineTo(ax - 3, ay - ah * 0.3);
-        c.lineTo(ax + 3, ay - ah * 0.3);
-        c.lineTo(ax + 5, ay + TH*0.2);
+        c.moveTo(ax, ay + TH*0.2);
+        c.quadraticCurveTo(ax - 8, ay + TH*0.5, ax - 12, ay - 2);
+        c.stroke();
+        // Legs (two pairs visible)
+        c.strokeStyle = `rgba(30,${Math.round(100*aPulse)},40,0.9)`;
+        c.lineWidth = 2;
+        [[-4,-2],[4,2]].forEach(([ox,foot]) => {
+          c.beginPath();
+          c.moveTo(ax + ox*0.5, ay - ah*0.25);
+          c.lineTo(ax + ox + foot, ay + TH*0.15);
+          c.stroke();
+        });
+        // Lower body
+        const bodyG = c.createLinearGradient(ax-6, ay-ah*0.4, ax+6, ay);
+        bodyG.addColorStop(0, `rgba(20,${Math.round(60*aPulse)},25,1)`);
+        bodyG.addColorStop(1, `rgba(10,${Math.round(40*aPulse)},15,1)`);
+        c.fillStyle = bodyG;
+        c.beginPath();
+        c.moveTo(ax - 5, ay + TH*0.1);
+        c.lineTo(ax - 3, ay - ah*0.35);
+        c.lineTo(ax + 3, ay - ah*0.35);
+        c.lineTo(ax + 5, ay + TH*0.1);
         c.closePath();
         c.fill();
+        // Upper torso — wider
+        const torsoG = c.createLinearGradient(ax-7, ay-ah*0.7, ax+7, ay-ah*0.35);
+        torsoG.addColorStop(0, `rgba(30,${Math.round(90*aPulse)},35,1)`);
+        torsoG.addColorStop(1, `rgba(15,${Math.round(55*aPulse)},20,1)`);
+        c.fillStyle = torsoG;
         c.beginPath();
-        c.moveTo(ax - 6, ay - ah * 0.3);
-        c.lineTo(ax + 6, ay - ah * 0.3);
-        c.lineTo(ax + 4, ay - ah * 0.7);
-        c.lineTo(ax - 4, ay - ah * 0.7);
+        c.moveTo(ax - 3, ay - ah*0.35);
+        c.lineTo(ax + 3, ay - ah*0.35);
+        c.lineTo(ax + 6, ay - ah*0.65);
+        c.lineTo(ax - 6, ay - ah*0.65);
         c.closePath();
         c.fill();
-        c.fillStyle = `rgba(40,${Math.round(140*aPulse)},60,0.95)`;
+        // Rib details
+        c.strokeStyle = `rgba(0,${Math.round(180*aPulse)},60,0.3)`;
+        c.lineWidth = 0.5;
+        for (let i=1;i<4;i++) {
+          const t = i/4;
+          c.beginPath();
+          c.moveTo(ax-5, ay-ah*(0.35+t*0.3));
+          c.lineTo(ax+5, ay-ah*(0.35+t*0.3));
+          c.stroke();
+        }
+        // Extended head/skull
+        c.fillStyle = `rgba(15,${Math.round(50*aPulse)},20,1)`;
         c.beginPath();
-        c.ellipse(ax, ay - ah * 0.85, 4, 6, 0, 0, Math.PI*2);
+        c.moveTo(ax - 4, ay - ah*0.65);
+        c.lineTo(ax + 4, ay - ah*0.65);
+        c.lineTo(ax + 2, ay - ah);
+        c.lineTo(ax, ay - ah*1.05);
+        c.lineTo(ax - 2, ay - ah);
+        c.closePath();
         c.fill();
-        c.fillStyle = `rgba(0,255,80,${aPulse*0.6})`;
+        // Inner teeth glow
+        c.fillStyle = `rgba(0,255,80,${aPulse*0.7})`;
         c.beginPath();
-        c.arc(ax, ay - ah * 0.7, 2, 0, Math.PI);
+        c.moveTo(ax - 3, ay - ah*0.72);
+        c.lineTo(ax + 3, ay - ah*0.72);
+        c.lineTo(ax + 2, ay - ah*0.65);
+        c.lineTo(ax - 2, ay - ah*0.65);
+        c.closePath();
         c.fill();
-        c.shadowColor = '#00ff55';
-        c.shadowBlur = 12;
-        c.strokeStyle = `rgba(0,255,80,${aPulse*0.4})`;
+        // Eyes glow
+        c.fillStyle = `rgba(0,255,100,${aPulse*0.9})`;
+        c.beginPath();
+        c.arc(ax - 2, ay - ah*0.78, 1, 0, Math.PI*2);
+        c.arc(ax + 2, ay - ah*0.78, 1, 0, Math.PI*2);
+        c.fill();
+        // Outer glow aura
+        c.shadowColor = '#00ff44';
+        c.shadowBlur = 15;
+        c.strokeStyle = `rgba(0,200,60,${aPulse*0.3})`;
         c.lineWidth = 1;
         c.beginPath();
-        c.ellipse(ax, ay - ah * 0.6, 8, ah*0.6, 0, 0, Math.PI*2);
+        c.ellipse(ax, ay - ah*0.55, 9, ah*0.55, 0, 0, Math.PI*2);
         c.stroke();
         c.shadowBlur = 0;
       }
@@ -1765,41 +1893,74 @@ class Game {
         const stress = p.stress;
         const shakeX = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
         const shakeY = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
-        const ph = 18;
+        const ph = 22;
         const pIso = IsoHelper.toScreen(p.x / T, p.y / T);
         const px2 = pIso.x + shakeX, py2 = pIso.y + shakeY;
-        // Shadow
-        c.fillStyle = 'rgba(0,0,0,0.35)';
+        // Ground shadow ellipse
+        c.fillStyle = 'rgba(0,0,0,0.3)';
         c.beginPath();
-        c.ellipse(px2, py2 + TH*0.4, TW*0.4, TH*0.25, 0, 0, Math.PI*2);
+        c.ellipse(px2, py2 + TH*0.5, TW*0.45, TH*0.2, 0, 0, Math.PI*2);
         c.fill();
+        // Boots
+        c.fillStyle = '#004433';
+        c.fillRect(px2 - 4, py2 + TH*0.1, 3, 4);
+        c.fillRect(px2 + 1, py2 + TH*0.1, 3, 4);
         // Legs
-        c.fillStyle = '#00aa66';
+        const legGrad = c.createLinearGradient(px2-4, 0, px2+4, 0);
+        legGrad.addColorStop(0, '#006644');
+        legGrad.addColorStop(1, '#004433');
+        c.fillStyle = legGrad;
         c.beginPath();
         c.moveTo(px2 - 4, py2 + TH*0.1);
-        c.lineTo(px2 - 2, py2 - ph*0.25);
-        c.lineTo(px2 + 2, py2 - ph*0.25);
+        c.lineTo(px2 - 2, py2 - ph*0.3);
+        c.lineTo(px2 + 2, py2 - ph*0.3);
         c.lineTo(px2 + 4, py2 + TH*0.1);
         c.closePath();
         c.fill();
-        // Suit body
-        c.fillStyle = '#00cc88';
+        // Body/suit
+        const bodyGrad = c.createLinearGradient(px2-6, 0, px2+6, 0);
+        bodyGrad.addColorStop(0, '#00cc88');
+        bodyGrad.addColorStop(0.5, '#00ffaa');
+        bodyGrad.addColorStop(1, '#009966');
+        c.fillStyle = bodyGrad;
         c.beginPath();
-        c.moveTo(px2 - 5, py2 - ph*0.25);
-        c.lineTo(px2 + 5, py2 - ph*0.25);
-        c.lineTo(px2 + 4, py2 - ph*0.65);
-        c.lineTo(px2 - 4, py2 - ph*0.65);
+        c.moveTo(px2 - 5, py2 - ph*0.3);
+        c.lineTo(px2 + 5, py2 - ph*0.3);
+        c.lineTo(px2 + 4, py2 - ph*0.68);
+        c.lineTo(px2 - 4, py2 - ph*0.68);
         c.closePath();
         c.fill();
-        // Helmet
-        c.fillStyle = '#00ff9d';
+        // Shoulder pads
+        c.fillStyle = '#00aa77';
         c.beginPath();
-        c.arc(px2, py2 - ph*0.82, 5, 0, Math.PI*2);
+        c.ellipse(px2 - 5, py2 - ph*0.55, 3, 2, -0.3, 0, Math.PI*2);
+        c.fill();
+        c.beginPath();
+        c.ellipse(px2 + 5, py2 - ph*0.55, 3, 2, 0.3, 0, Math.PI*2);
+        c.fill();
+        // Chest detail (light stripe)
+        c.fillStyle = 'rgba(0,255,180,0.4)';
+        c.fillRect(px2 - 1, py2 - ph*0.62, 2, ph*0.28);
+        // Helmet outer
+        const helmetGrad = c.createRadialGradient(px2-1, py2 - ph*0.85, 1, px2, py2 - ph*0.82, 6);
+        helmetGrad.addColorStop(0, '#44ffcc');
+        helmetGrad.addColorStop(1, '#00aa77');
+        c.fillStyle = helmetGrad;
+        c.beginPath();
+        c.arc(px2, py2 - ph*0.82, 6, 0, Math.PI*2);
         c.fill();
         // Visor
-        c.fillStyle = 'rgba(0,200,255,0.7)';
+        const visorGrad = c.createLinearGradient(px2-3, py2-ph*0.88, px2+3, py2-ph*0.76);
+        visorGrad.addColorStop(0, 'rgba(100,220,255,0.9)');
+        visorGrad.addColorStop(1, 'rgba(0,100,200,0.7)');
+        c.fillStyle = visorGrad;
         c.beginPath();
-        c.ellipse(px2, py2 - ph*0.82, 3, 2.5, 0, 0, Math.PI*2);
+        c.ellipse(px2, py2 - ph*0.82, 4, 3, 0, 0, Math.PI*2);
+        c.fill();
+        // Visor reflection
+        c.fillStyle = 'rgba(255,255,255,0.3)';
+        c.beginPath();
+        c.ellipse(px2-1, py2 - ph*0.86, 1.5, 1, -0.3, 0, Math.PI*2);
         c.fill();
         // Flashlight beam
         if (p.lightOn) {
@@ -1822,6 +1983,17 @@ class Game {
       }
     }
 
+    c.restore();
+
+    // Ambient green light under player
+    c.save();
+    c.translate(originX, originY);
+    const pIsoFinal = IsoHelper.toScreen(p.x / T, p.y / T);
+    const ambGrad = c.createRadialGradient(pIsoFinal.x, pIsoFinal.y, 0, pIsoFinal.x, pIsoFinal.y, TW*3);
+    ambGrad.addColorStop(0, 'rgba(0,255,120,0.08)');
+    ambGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = ambGrad;
+    c.fillRect(pIsoFinal.x - TW*3, pIsoFinal.y - TH*6, TW*6, TH*12);
     c.restore();
 
     // Fog vignette overlay (in canvas space, after restore)
