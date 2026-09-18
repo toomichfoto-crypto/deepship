@@ -514,112 +514,46 @@ const IsoHelper = {
       y: (tx + ty) * CONFIG.ISO_TH
     };
   },
-  // Draw floor diamond
-  drawFloor(c, sx, sy, fillColor, strokeColor, variant) {
+  // Draw floor diamond — flat single color
+  drawFloor(c, sx, sy, fillColor, strokeColor) {
     const tw = CONFIG.ISO_TW, th = CONFIG.ISO_TH;
-    // Base gradient
-    const grad = c.createLinearGradient(sx - tw, sy - th, sx + tw, sy + th);
-    grad.addColorStop(0, lighten(fillColor, 0.15));
-    grad.addColorStop(0.5, fillColor);
-    grad.addColorStop(1, darken(fillColor, 0.2));
     c.beginPath();
     c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
     c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
     c.closePath();
-    c.fillStyle = grad;
+    c.fillStyle = fillColor;
     c.fill();
-    // Highlight top-left edge
-    c.beginPath();
-    c.moveTo(sx - tw, sy); c.lineTo(sx, sy - th); c.lineTo(sx + tw, sy);
-    c.strokeStyle = 'rgba(255,255,255,0.06)';
-    c.lineWidth = 1;
-    c.stroke();
-    // Dark bottom edge
-    c.beginPath();
-    c.moveTo(sx - tw, sy); c.lineTo(sx, sy + th); c.lineTo(sx + tw, sy);
-    c.strokeStyle = 'rgba(0,0,0,0.25)';
-    c.lineWidth = 1;
-    c.stroke();
-    // Floor detail lines (metal plates)
-    if (variant !== undefined && variant % 3 === 0) {
-      c.strokeStyle = 'rgba(0,0,0,0.12)';
-      c.lineWidth = 0.5;
-      c.beginPath();
-      c.moveTo(sx - tw*0.5, sy - th*0.5); c.lineTo(sx + tw*0.5, sy - th*0.5);
-      c.stroke();
-    }
     if (strokeColor) {
-      c.beginPath();
-      c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
-      c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
-      c.closePath();
       c.strokeStyle = strokeColor; c.lineWidth = 0.5; c.stroke();
     }
   },
-  // Draw wall block (top face + south face + east face)
+  // Draw wall block — flat single colors per face
   drawWall(c, sx, sy, topColor, southColor, eastColor) {
     const tw = CONFIG.ISO_TW, th = CONFIG.ISO_TH, wh = CONFIG.ISO_WALL_H;
-
-    // Top face with gradient
-    const topGrad = c.createLinearGradient(sx - tw, sy - th, sx + tw, sy + th);
-    topGrad.addColorStop(0, lighten(topColor, 0.3));
-    topGrad.addColorStop(1, darken(topColor, 0.1));
+    // Top face
     c.beginPath();
     c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
     c.lineTo(sx, sy + th); c.lineTo(sx - tw, sy);
     c.closePath();
-    c.fillStyle = topGrad; c.fill();
-
-    // South face (left side)
-    const sGrad = c.createLinearGradient(sx - tw, sy, sx, sy + th + wh);
-    sGrad.addColorStop(0, southColor);
-    sGrad.addColorStop(1, darken(southColor, 0.3));
+    c.fillStyle = topColor; c.fill();
+    // South face (left)
     c.beginPath();
     c.moveTo(sx - tw, sy); c.lineTo(sx, sy + th);
     c.lineTo(sx, sy + th + wh); c.lineTo(sx - tw, sy + wh);
     c.closePath();
-    c.fillStyle = sGrad; c.fill();
-    // Panel lines on south face
-    c.strokeStyle = 'rgba(0,0,0,0.2)';
-    c.lineWidth = 0.5;
-    for (let i = 1; i < 3; i++) {
-      const t = i / 3;
-      c.beginPath();
-      c.moveTo(sx - tw + tw*t, sy + th*t);
-      c.lineTo(sx - tw + tw*t, sy + th*t + wh);
-      c.stroke();
-    }
-
-    // East face (right side)
-    const eGrad = c.createLinearGradient(sx, sy + th, sx + tw, sy);
-    eGrad.addColorStop(0, eastColor);
-    eGrad.addColorStop(1, lighten(eastColor, 0.1));
+    c.fillStyle = southColor; c.fill();
+    // East face (right)
     c.beginPath();
     c.moveTo(sx, sy + th); c.lineTo(sx + tw, sy);
     c.lineTo(sx + tw, sy + wh); c.lineTo(sx, sy + th + wh);
     c.closePath();
-    c.fillStyle = eGrad; c.fill();
-    // Horizontal lines on east face
-    c.strokeStyle = 'rgba(255,255,255,0.05)';
-    c.lineWidth = 0.5;
-    for (let i = 1; i < 3; i++) {
-      const y = sy + th + (wh * i / 3);
-      const y2 = sy + (wh * i / 3);
-      c.beginPath();
-      c.moveTo(sx, y); c.lineTo(sx + tw, y2);
-      c.stroke();
-    }
-
-    // Bright top edge highlight
+    c.fillStyle = eastColor; c.fill();
+    // Outline
     c.beginPath();
-    c.moveTo(sx - tw, sy); c.lineTo(sx, sy - th); c.lineTo(sx + tw, sy);
-    c.strokeStyle = 'rgba(255,255,255,0.15)'; c.lineWidth = 1; c.stroke();
-
-    // Dark bottom outline
-    c.beginPath();
-    c.moveTo(sx - tw, sy); c.lineTo(sx - tw, sy + wh);
-    c.lineTo(sx, sy + th + wh); c.lineTo(sx + tw, sy + wh);
-    c.lineTo(sx + tw, sy);
+    c.moveTo(sx, sy - th); c.lineTo(sx + tw, sy);
+    c.lineTo(sx + tw, sy + wh); c.lineTo(sx, sy + th + wh);
+    c.lineTo(sx - tw, sy + wh); c.lineTo(sx - tw, sy);
+    c.closePath();
     c.strokeStyle = 'rgba(0,0,0,0.5)'; c.lineWidth = 0.7; c.stroke();
   },
   // Draw a box/crate on a tile (for items, doors etc)
@@ -1789,9 +1723,8 @@ class Game {
         c.fillText('+', sx, sy - 4);
       }
 
-      // Draw alien if on this tile (use exact sub-tile iso position)
-      const at = Utils.worldToTile(this.alien.x, this.alien.y);
-      if (at.x === tx && at.y === ty && this.visible.has(`${tx},${ty}`)) {
+      // (entities drawn after map loop — skip here)
+      if (false) {
         const aPulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
         const aIso = IsoHelper.toScreen(this.alien.x / T, this.alien.y / T);
         const ax = aIso.x, ay = aIso.y;
@@ -1888,8 +1821,8 @@ class Game {
         c.shadowBlur = 0;
       }
 
-      // Draw player if on this tile (use exact sub-tile iso position)
-      if (pt.x === tx && pt.y === ty) {
+      // (player drawn after map loop — skip here)
+      if (false) {
         const stress = p.stress;
         const shakeX = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
         const shakeY = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
@@ -1980,6 +1913,128 @@ class Game {
           c.stroke();
           c.shadowBlur = 0;
         }
+      }
+    }
+
+    // ---- Draw entities AFTER map (always on top of floor) ----
+    const at = Utils.worldToTile(this.alien.x, this.alien.y);
+    if (this.visible.has(`${at.x},${at.y}`)) {
+      const aPulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
+      const aIso = IsoHelper.toScreen(this.alien.x / T, this.alien.y / T);
+      const ax = aIso.x, ay = aIso.y;
+      const ah = 26;
+      c.fillStyle = 'rgba(0,0,0,0.45)';
+      c.beginPath();
+      c.ellipse(ax, ay + TH*0.5, TW*0.5, TH*0.22, 0, 0, Math.PI*2);
+      c.fill();
+      c.strokeStyle = `rgba(20,${Math.round(80*aPulse)},30,0.8)`;
+      c.lineWidth = 2; c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(ax, ay + TH*0.2);
+      c.quadraticCurveTo(ax - 8, ay + TH*0.5, ax - 12, ay - 2);
+      c.stroke();
+      c.strokeStyle = `rgba(30,${Math.round(100*aPulse)},40,0.9)`;
+      c.lineWidth = 2;
+      [[-4,-2],[4,2]].forEach(([ox,foot]) => {
+        c.beginPath();
+        c.moveTo(ax + ox*0.5, ay - ah*0.25);
+        c.lineTo(ax + ox + foot, ay + TH*0.15);
+        c.stroke();
+      });
+      const bodyG = c.createLinearGradient(ax-6, ay-ah*0.4, ax+6, ay);
+      bodyG.addColorStop(0, `rgba(20,${Math.round(60*aPulse)},25,1)`);
+      bodyG.addColorStop(1, `rgba(10,${Math.round(40*aPulse)},15,1)`);
+      c.fillStyle = bodyG;
+      c.beginPath();
+      c.moveTo(ax - 5, ay + TH*0.1); c.lineTo(ax - 3, ay - ah*0.35);
+      c.lineTo(ax + 3, ay - ah*0.35); c.lineTo(ax + 5, ay + TH*0.1);
+      c.closePath(); c.fill();
+      const torsoG = c.createLinearGradient(ax-7, ay-ah*0.7, ax+7, ay-ah*0.35);
+      torsoG.addColorStop(0, `rgba(30,${Math.round(90*aPulse)},35,1)`);
+      torsoG.addColorStop(1, `rgba(15,${Math.round(55*aPulse)},20,1)`);
+      c.fillStyle = torsoG;
+      c.beginPath();
+      c.moveTo(ax - 3, ay - ah*0.35); c.lineTo(ax + 3, ay - ah*0.35);
+      c.lineTo(ax + 6, ay - ah*0.65); c.lineTo(ax - 6, ay - ah*0.65);
+      c.closePath(); c.fill();
+      c.strokeStyle = `rgba(0,${Math.round(180*aPulse)},60,0.3)`;
+      c.lineWidth = 0.5;
+      for (let i=1;i<4;i++) {
+        const t2=i/4;
+        c.beginPath(); c.moveTo(ax-5,ay-ah*(0.35+t2*0.3)); c.lineTo(ax+5,ay-ah*(0.35+t2*0.3)); c.stroke();
+      }
+      c.fillStyle = `rgba(15,${Math.round(50*aPulse)},20,1)`;
+      c.beginPath();
+      c.moveTo(ax-4,ay-ah*0.65); c.lineTo(ax+4,ay-ah*0.65);
+      c.lineTo(ax+2,ay-ah); c.lineTo(ax,ay-ah*1.05); c.lineTo(ax-2,ay-ah);
+      c.closePath(); c.fill();
+      c.fillStyle = `rgba(0,255,80,${aPulse*0.7})`;
+      c.beginPath();
+      c.moveTo(ax-3,ay-ah*0.72); c.lineTo(ax+3,ay-ah*0.72);
+      c.lineTo(ax+2,ay-ah*0.65); c.lineTo(ax-2,ay-ah*0.65);
+      c.closePath(); c.fill();
+      c.fillStyle = `rgba(0,255,100,${aPulse*0.9})`;
+      c.beginPath();
+      c.arc(ax-2,ay-ah*0.78,1,0,Math.PI*2); c.arc(ax+2,ay-ah*0.78,1,0,Math.PI*2); c.fill();
+      c.shadowColor='#00ff44'; c.shadowBlur=15;
+      c.strokeStyle=`rgba(0,200,60,${aPulse*0.3})`; c.lineWidth=1;
+      c.beginPath(); c.ellipse(ax,ay-ah*0.55,9,ah*0.55,0,0,Math.PI*2); c.stroke();
+      c.shadowBlur=0;
+    }
+
+    // Player always on top
+    {
+      const stress = p.stress;
+      const shakeX = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
+      const shakeY = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
+      const ph = 22;
+      const pIso = IsoHelper.toScreen(p.x / T, p.y / T);
+      const px2 = pIso.x + shakeX, py2 = pIso.y + shakeY;
+      c.fillStyle = 'rgba(0,0,0,0.3)';
+      c.beginPath();
+      c.ellipse(px2, py2 + TH*0.5, TW*0.45, TH*0.2, 0, 0, Math.PI*2);
+      c.fill();
+      c.fillStyle = '#004433';
+      c.fillRect(px2 - 4, py2 + TH*0.1, 3, 4);
+      c.fillRect(px2 + 1, py2 + TH*0.1, 3, 4);
+      const legGrad = c.createLinearGradient(px2-4, 0, px2+4, 0);
+      legGrad.addColorStop(0, '#006644'); legGrad.addColorStop(1, '#004433');
+      c.fillStyle = legGrad;
+      c.beginPath();
+      c.moveTo(px2-4,py2+TH*0.1); c.lineTo(px2-2,py2-ph*0.3);
+      c.lineTo(px2+2,py2-ph*0.3); c.lineTo(px2+4,py2+TH*0.1);
+      c.closePath(); c.fill();
+      const bodyGrad = c.createLinearGradient(px2-6,0,px2+6,0);
+      bodyGrad.addColorStop(0,'#00cc88'); bodyGrad.addColorStop(0.5,'#00ffaa'); bodyGrad.addColorStop(1,'#009966');
+      c.fillStyle = bodyGrad;
+      c.beginPath();
+      c.moveTo(px2-5,py2-ph*0.3); c.lineTo(px2+5,py2-ph*0.3);
+      c.lineTo(px2+4,py2-ph*0.68); c.lineTo(px2-4,py2-ph*0.68);
+      c.closePath(); c.fill();
+      c.fillStyle = '#00aa77';
+      c.beginPath(); c.ellipse(px2-5,py2-ph*0.55,3,2,-0.3,0,Math.PI*2); c.fill();
+      c.beginPath(); c.ellipse(px2+5,py2-ph*0.55,3,2,0.3,0,Math.PI*2); c.fill();
+      c.fillStyle = 'rgba(0,255,180,0.4)';
+      c.fillRect(px2-1, py2-ph*0.62, 2, ph*0.28);
+      const helmetGrad = c.createRadialGradient(px2-1,py2-ph*0.85,1,px2,py2-ph*0.82,6);
+      helmetGrad.addColorStop(0,'#44ffcc'); helmetGrad.addColorStop(1,'#00aa77');
+      c.fillStyle = helmetGrad;
+      c.beginPath(); c.arc(px2,py2-ph*0.82,6,0,Math.PI*2); c.fill();
+      const visorGrad = c.createLinearGradient(px2-3,py2-ph*0.88,px2+3,py2-ph*0.76);
+      visorGrad.addColorStop(0,'rgba(100,220,255,0.9)'); visorGrad.addColorStop(1,'rgba(0,100,200,0.7)');
+      c.fillStyle = visorGrad;
+      c.beginPath(); c.ellipse(px2,py2-ph*0.82,4,3,0,0,Math.PI*2); c.fill();
+      c.fillStyle = 'rgba(255,255,255,0.3)';
+      c.beginPath(); c.ellipse(px2-1,py2-ph*0.86,1.5,1,-0.3,0,Math.PI*2); c.fill();
+      if (p.lightOn) {
+        c.strokeStyle = 'rgba(255,255,200,0.06)';
+        c.lineWidth = TW * 1.5; c.lineCap = 'round';
+        c.shadowColor = 'rgba(255,255,200,0.1)'; c.shadowBlur = 20;
+        c.beginPath();
+        c.moveTo(px2, py2 - ph*0.65);
+        const beamLen = CONFIG.FOV_RADIUS * (TW + TH) * 0.5;
+        c.lineTo(px2 + p.facing.dx * beamLen, py2 + p.facing.dy * beamLen * 0.5 - ph*0.3);
+        c.stroke(); c.shadowBlur = 0;
       }
     }
 
