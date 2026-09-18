@@ -647,12 +647,30 @@ const Input = {
   isSprinting() { return this.isDown('ShiftLeft') || this.isDown('ShiftRight'); },
   isInteracting() { return this.isDown('KeyE'); },
   getMovement() {
+    // Isometric controls — iso directions map to world axes:
+    // Up    = iso North → world (-1, -1)  (tx--, ty--)
+    // Down  = iso South → world (+1, +1)  (tx++, ty++)
+    // Left  = iso West  → world (-1, +1)  (tx--, ty++)
+    // Right = iso East  → world (+1, -1)  (tx++, ty--)
+    // Combinations are diagonal iso:
+    // Up+Right = iso NE → world (0, -1)
+    // Up+Left  = iso NW → world (-1, 0)
+    // Down+Right = iso SE → world (+1, 0)
+    // Down+Left  = iso SW → world (0, +1)
+    const up    = this.isDown('KeyW') || this.isDown('ArrowUp');
+    const down  = this.isDown('KeyS') || this.isDown('ArrowDown');
+    const left  = this.isDown('KeyA') || this.isDown('ArrowLeft');
+    const right = this.isDown('KeyD') || this.isDown('ArrowRight');
+
     let dx = 0, dy = 0;
-    if (this.isDown('KeyW') || this.isDown('ArrowUp'))    dy = -1;
-    if (this.isDown('KeyS') || this.isDown('ArrowDown'))  dy =  1;
-    if (this.isDown('KeyA') || this.isDown('ArrowLeft'))  dx = -1;
-    if (this.isDown('KeyD') || this.isDown('ArrowRight')) dx =  1;
-    if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+    if (up && right)        { dx =  0;     dy = -1;    }  // iso NE
+    else if (up && left)    { dx = -1;     dy =  0;    }  // iso NW
+    else if (down && right) { dx =  1;     dy =  0;    }  // iso SE
+    else if (down && left)  { dx =  0;     dy =  1;    }  // iso SW
+    else if (up)            { dx = -0.707; dy = -0.707; }  // iso N
+    else if (down)          { dx =  0.707; dy =  0.707; }  // iso S
+    else if (left)          { dx = -0.707; dy =  0.707; }  // iso W
+    else if (right)         { dx =  0.707; dy = -0.707; }  // iso E
     return { dx, dy };
   }
 };
@@ -1698,63 +1716,58 @@ class Game {
         c.fillText('+', sx, sy - 4);
       }
 
-      // Draw alien if on this tile
+      // Draw alien if on this tile (use exact sub-tile iso position)
       const at = Utils.worldToTile(this.alien.x, this.alien.y);
       if (at.x === tx && at.y === ty && this.visible.has(`${tx},${ty}`)) {
         const aPulse = Math.sin(Date.now()/200) * 0.3 + 0.7;
-        // Alien body - tall sinister shape
-        const ah = 22; // alien height
-        // Body shadow
+        const aIso = IsoHelper.toScreen(this.alien.x / T, this.alien.y / T);
+        const ax = aIso.x, ay = aIso.y;
+        const ah = 22;
         c.fillStyle = 'rgba(0,0,0,0.4)';
         c.beginPath();
-        c.ellipse(sx, sy + TH*0.5, TW*0.5, TH*0.3, 0, 0, Math.PI*2);
+        c.ellipse(ax, ay + TH*0.5, TW*0.5, TH*0.3, 0, 0, Math.PI*2);
         c.fill();
-        // Body silhouette
         c.fillStyle = `rgba(60,${Math.round(180*aPulse)},90,0.95)`;
-        // Legs
         c.beginPath();
-        c.moveTo(sx - 5, sy + TH*0.2);
-        c.lineTo(sx - 3, sy - ah * 0.3);
-        c.lineTo(sx + 3, sy - ah * 0.3);
-        c.lineTo(sx + 5, sy + TH*0.2);
+        c.moveTo(ax - 5, ay + TH*0.2);
+        c.lineTo(ax - 3, ay - ah * 0.3);
+        c.lineTo(ax + 3, ay - ah * 0.3);
+        c.lineTo(ax + 5, ay + TH*0.2);
         c.closePath();
         c.fill();
-        // Torso
         c.beginPath();
-        c.moveTo(sx - 6, sy - ah * 0.3);
-        c.lineTo(sx + 6, sy - ah * 0.3);
-        c.lineTo(sx + 4, sy - ah * 0.7);
-        c.lineTo(sx - 4, sy - ah * 0.7);
+        c.moveTo(ax - 6, ay - ah * 0.3);
+        c.lineTo(ax + 6, ay - ah * 0.3);
+        c.lineTo(ax + 4, ay - ah * 0.7);
+        c.lineTo(ax - 4, ay - ah * 0.7);
         c.closePath();
         c.fill();
-        // Head
         c.fillStyle = `rgba(40,${Math.round(140*aPulse)},60,0.95)`;
         c.beginPath();
-        c.ellipse(sx, sy - ah * 0.85, 4, 6, 0, 0, Math.PI*2);
+        c.ellipse(ax, ay - ah * 0.85, 4, 6, 0, 0, Math.PI*2);
         c.fill();
-        // Inner mouth glow
         c.fillStyle = `rgba(0,255,80,${aPulse*0.6})`;
         c.beginPath();
-        c.arc(sx, sy - ah * 0.7, 2, 0, Math.PI);
+        c.arc(ax, ay - ah * 0.7, 2, 0, Math.PI);
         c.fill();
-        // Glow aura
         c.shadowColor = '#00ff55';
         c.shadowBlur = 12;
         c.strokeStyle = `rgba(0,255,80,${aPulse*0.4})`;
         c.lineWidth = 1;
         c.beginPath();
-        c.ellipse(sx, sy - ah * 0.6, 8, ah*0.6, 0, 0, Math.PI*2);
+        c.ellipse(ax, ay - ah * 0.6, 8, ah*0.6, 0, 0, Math.PI*2);
         c.stroke();
         c.shadowBlur = 0;
       }
 
-      // Draw player if on this tile
+      // Draw player if on this tile (use exact sub-tile iso position)
       if (pt.x === tx && pt.y === ty) {
         const stress = p.stress;
         const shakeX = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
         const shakeY = stress > 60 ? (Math.random()-0.5) * stress/30 : 0;
-        const ph = 18; // player height
-        const px2 = sx + shakeX, py2 = sy + shakeY;
+        const ph = 18;
+        const pIso = IsoHelper.toScreen(p.x / T, p.y / T);
+        const px2 = pIso.x + shakeX, py2 = pIso.y + shakeY;
         // Shadow
         c.fillStyle = 'rgba(0,0,0,0.35)';
         c.beginPath();
